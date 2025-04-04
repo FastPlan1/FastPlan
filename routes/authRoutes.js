@@ -4,7 +4,7 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const dotenv = require("dotenv");
 const User = require("../models/User");
-const InviteCode = require("../models/CodeInvitation");
+const InviteCode = require("../models/codeInvitation");
 
 dotenv.config();
 
