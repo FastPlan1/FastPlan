@@ -11,8 +11,8 @@ const ReservationSchema = new mongoose.Schema({
     heure: { type: String, required: true },
     description: { type: String, required: false },
     statut: { type: String, default: "En attente" }, // En attente, Acceptée, Refusée
-    entrepriseId: { type: mongoose.Schema.Types.ObjectId, ref: 'Entreprise', required: false }, // 🔧 optionnel
-    createdAt: { type: Date, default: Date.now } // ✅ virgule fixée au-dessus
+    entrepriseId: { type: String, required: false }, // ✅ virgule ajoutée ici
+    createdAt: { type: Date, default: Date.now }
 });
 
 module.exports = mongoose.model("Reservation", ReservationSchema);
