@@ -24,5 +24,19 @@ router.post("/generer-lien/:idEntreprise", async (req, res) => {
   }
 });
 
+// ✅ Récupérer l'entreprise d'un patron via son userId
+router.get("/by-user/:userId", async (req, res) => {
+  try {
+    const entreprise = await Entreprise.findOne({ patronId: req.params.userId });
+    if (!entreprise) return res.status(404).json({ error: "Entreprise introuvable." });
+
+    res.status(200).json({ entrepriseId: entreprise._id });
+  } catch (err) {
+    console.error("❌ Erreur récupération entreprise par userId :", err);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
+});
+
+
 module.exports = router;
 

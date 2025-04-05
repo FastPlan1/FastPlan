@@ -40,16 +40,20 @@ export const AuthProvider = ({ children }) => {
 
       // ✅ Utilisation d'un UUID comme identifiant temporaire
       if (!entrepriseId && userData.role === "patron") {
-        entrepriseId = `temp-${uuidv4()}`;
-
         try {
+          const entrepriseRes = await axios.get(`${API_BASE_URL}/entreprise/by-user/${userData._id}`);
+          entrepriseId = entrepriseRes.data.entrepriseId;
+      
+          // Met à jour le backend (juste au cas où)
           await axios.patch(`${API_BASE_URL}/auth/users/${userData._id}`, {
             entrepriseId,
           });
         } catch (e) {
-          console.warn("⚠️ Impossible de mettre à jour entrepriseId côté backend :", e.message);
+          console.warn("⚠️ Impossible de récupérer ou mettre à jour l'entreprise :", e.message);
+          entrepriseId = `temp-${uuidv4()}`; // fallback si la requête échoue
         }
       }
+      
 
       const formattedUser = {
         ...userData,
