@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const codeInvitation = require("../models/CodeInvitation");
+const codeInvitation = require("../models/codeInvitation");
 const User = require("../models/User");
 
 // Fonction pour générer un code aléatoire de 6 caractères
