@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const Reservation = require("../models/Reservation");
+const Reservation = require("../models/DemandeReservation");
 const Planning = require("../models/Planning");
 const Entreprise = require("../models/Entreprise");
 const crypto = require("crypto");
