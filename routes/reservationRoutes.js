@@ -4,6 +4,7 @@ const Reservation = require("../models/DemandeReservation");
 const Planning = require("../models/Planning");
 const Entreprise = require("../models/Entreprise");
 const crypto = require("crypto");
+const mongoose = require("mongoose");
 
 // ✅ Créer une nouvelle demande de réservation (client)
 router.post("/", async (req, res) => {
@@ -29,10 +30,15 @@ router.post("/", async (req, res) => {
       !depart ||
       !arrive ||
       !date ||
-      !heure ||
-      !entrepriseId
+      !heure
     ) {
       return res.status(400).json({ error: "⚠️ Tous les champs obligatoires doivent être remplis." });
+    }
+
+    // ✅ Vérification entrepriseId : n'est ajouté que s'il est valide
+    let validEntrepriseId = null;
+    if (entrepriseId && mongoose.Types.ObjectId.isValid(entrepriseId)) {
+      validEntrepriseId = entrepriseId;
     }
 
     const nouvelleReservation = new Reservation({
@@ -45,7 +51,7 @@ router.post("/", async (req, res) => {
       date,
       heure,
       description,
-      entrepriseId,
+      entrepriseId: validEntrepriseId,
     });
 
     await nouvelleReservation.save();
@@ -69,7 +75,7 @@ router.get("/entreprise/:entrepriseId", async (req, res) => {
   }
 });
 
-// ✅ Accepter une demande de réservation (ajoutée automatiquement au planning général)
+// ✅ Accepter une demande de réservation
 router.put("/accepter/:id", async (req, res) => {
   try {
     const reservation = await Reservation.findByIdAndUpdate(
@@ -141,7 +147,7 @@ router.delete("/:id", async (req, res) => {
 // 📌 ✅ Générer lien unique pour les clients (à envoyer par mail)
 router.post("/generer-lien/:entrepriseId", async (req, res) => {
   try {
-    const lienUnique = crypto.randomBytes(8).toString('hex'); // Génération du lien unique
+    const lienUnique = crypto.randomBytes(8).toString('hex');
 
     const entreprise = await Entreprise.findByIdAndUpdate(
       req.params.entrepriseId,
@@ -159,7 +165,7 @@ router.post("/generer-lien/:entrepriseId", async (req, res) => {
   }
 });
 
-// 📌 ✅ Route publique pour récupérer les informations d'entreprise via lien unique
+// 📌 ✅ Récupération des infos via lien unique
 router.get("/client/:lienReservation", async (req, res) => {
   try {
     const entreprise = await Entreprise.findOne({ lienReservation: req.params.lienReservation });
