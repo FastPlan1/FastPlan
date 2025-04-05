@@ -3,7 +3,6 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import { API_BASE_URL } from "../config";
 import { v4 as uuidv4 } from "uuid";
-import { ObjectId } from "bson"; // ✅ Pour générer un vrai ObjectId compatible MongoDB
 
 export const AuthContext = createContext();
 
@@ -39,11 +38,10 @@ export const AuthProvider = ({ children }) => {
 
       let entrepriseId = userData.entrepriseId;
 
-      // ✅ Génération d'un ObjectId valide si manquant (et si c'est un patron)
+      // ✅ Utilisation d'un UUID comme identifiant temporaire
       if (!entrepriseId && userData.role === "patron") {
-        entrepriseId = new ObjectId().toString(); // ✅ ObjectId correct
+        entrepriseId = `temp-${uuidv4()}`;
 
-        // Patch entrepriseId côté backend
         try {
           await axios.patch(`${API_BASE_URL}/auth/users/${userData._id}`, {
             entrepriseId,
