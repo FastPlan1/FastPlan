@@ -27,8 +27,13 @@ connectDB()
     const server = http.createServer(app);
     const io = new Server(server, {
       cors: {
-        origin: ["http://localhost:8081", "http://172.20.10.2:8081"],
-        methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+        origin: [
+          "http://localhost:8081",
+          "http://172.20.10.2:8081",
+          "https://chipper-buttercream-f5e4b1.netlify.app", // ✅ ton site client Netlify
+        ],
+        methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allowedHeaders: ["Content-Type", "Authorization"],
         credentials: true,
       },
     });
@@ -54,32 +59,33 @@ connectDB()
     // ✅ Middlewares
     app.use(cors({
       origin: [
-        "http://localhost:8081", 
+        "http://localhost:8081",
         "http://172.20.10.2:8081",
-        "https://chipper-buttercream-f5e4b1.netlify.app"  // ✅ ton site client
+        "https://chipper-buttercream-f5e4b1.netlify.app", // ✅ autorisé CORS
       ],
       methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
       allowedHeaders: ["Content-Type", "Authorization"],
-      credentials: true
+      credentials: true,
     }));
-    
     app.use(express.json());
     app.use(morgan("dev"));
 
-    // ✅ Fichiers statiques (si uploads)
+    // ✅ Fichiers statiques (uploads)
     app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
     console.log("✅ Middlewares activés avec gestion CORS, JSON et logs HTTP !");
 
-    // ✅ Routes
-    const authRoutes = require("./routes/authRoutes"); // ⚠️ Doit inclure PATCH /users/:id
+    // ✅ Import des routes
+    const authRoutes = require("./routes/authRoutes");
     const clientsRoutes = require("./routes/clientsRoutes");
     const coursesRoutes = require("./routes/coursesRoutes");
     const planningRoutes = require("./routes/planningRoutes");
     const chatRoutes = require("./routes/chatRoutes");
     const employeeRoutes = require("./routes/employeeRoutes");
     const invitationRoutes = require("./routes/invitationRoutes");
+    const reservationRoutes = require("./routes/reservationRoutes"); // ✅ AJOUT pour formulaire
 
+    // ✅ Utilisation des routes
     app.use("/api/auth", authRoutes);
     app.use("/api/clients", clientsRoutes);
     app.use("/api/courses", coursesRoutes);
@@ -87,26 +93,27 @@ connectDB()
     app.use("/api/chat", chatRoutes);
     app.use("/api/employees", employeeRoutes);
     app.use("/api/invitation", invitationRoutes);
+    app.use("/api/reservations", reservationRoutes); // ✅ pour Netlify
 
     // ✅ Route de test
     app.get("/", (req, res) => res.send("🚀 Serveur opérationnel et prêt à l'emploi !"));
 
-    // ✅ Erreur 404
+    // ✅ Route non trouvée
     app.use("*", (req, res) => {
       res.status(404).json({ error: "❌ Route non trouvée" });
     });
 
-    // ✅ Gestion d'erreur globale
+    // ✅ Erreur serveur
     app.use((err, req, res, next) => {
       console.error("❌ Erreur serveur :", err.message);
       res.status(500).json({ error: err.message || "Erreur serveur interne" });
     });
 
-    // ✅ Démarrage
+    // ✅ Lancement du serveur
     const PORT = process.env.PORT || 5000;
-    server.listen(PORT, () =>
-      console.log(`🚀 Serveur démarré sur le port ${PORT} et prêt à l'emploi avec Socket.IO activé !`)
-    );
+    server.listen(PORT, () => {
+      console.log(`🚀 Serveur démarré sur le port ${PORT} et prêt à l'emploi avec Socket.IO activé !`);
+    });
   })
   .catch((err) => {
     console.error("❌ Échec de connexion MongoDB :", err);
