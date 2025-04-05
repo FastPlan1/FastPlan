@@ -53,11 +53,16 @@ connectDB()
 
     // ✅ Middlewares
     app.use(cors({
-      origin: ["http://localhost:8081", "http://172.20.10.2:8081"],
+      origin: [
+        "http://localhost:8081", 
+        "http://172.20.10.2:8081",
+        "https://chipper-buttercream-f5e4b1.netlify.app"  // ✅ ton site client
+      ],
       methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
       allowedHeaders: ["Content-Type", "Authorization"],
       credentials: true
     }));
+    
     app.use(express.json());
     app.use(morgan("dev"));
 
