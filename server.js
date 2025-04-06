@@ -84,7 +84,7 @@ connectDB()
     const employeeRoutes = require("./routes/employeeRoutes");
     const invitationRoutes = require("./routes/invitationRoutes");
     const reservationRoutes = require("./routes/reservationRoutes");
-    const notificationsRoutes = require("./routes/notificationsRoutes"); // ✅ Notification
+    const notificationsRoutes = require("./routes/notificationsRoutes"); // ✅ Notifications
 
     // ✅ Utilisation des routes
     app.use("/api/auth", authRoutes);
@@ -95,7 +95,7 @@ connectDB()
     app.use("/api/employees", employeeRoutes);
     app.use("/api/invitation", invitationRoutes);
     app.use("/api/reservations", reservationRoutes);
-    app.use("/api/notifications", notificationRoutes); // ✅ Notifications
+    app.use("/api/notifications", notificationsRoutes); // ✅ Notifications
 
     // ✅ Route de test
     app.get("/", (req, res) => res.send("🚀 Serveur opérationnel et prêt à l'emploi !"));
