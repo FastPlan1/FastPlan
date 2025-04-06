@@ -18,13 +18,16 @@ const DemandesReservationsScreen = () => {
     setLoading(true);
     try {
       const res = await axios.get(`${API_BASE_URL}/reservations/entreprise/${user.entrepriseId}`);
+      console.log("📦 Réservations reçues :", res.data); // 👈 debug ici
       setReservations(res.data);
     } catch (error) {
+      console.error("❌ Erreur récupération réservations :", error); // 👈 log erreur
       Alert.alert("Erreur", "Impossible de récupérer les réservations.");
     } finally {
       setLoading(false);
     }
   };
+  
 
   const handleAccept = async (id) => {
     try {
