@@ -84,7 +84,7 @@ connectDB()
     const employeeRoutes = require("./routes/employeeRoutes");
     const invitationRoutes = require("./routes/invitationRoutes");
     const reservationRoutes = require("./routes/reservationRoutes");
-    const notificationsRoutes = require("./routes/notificationRoutes"); // ✅ Notification
+    const notificationsRoutes = require("./routes/notificationsRoutes"); // ✅ Notification
 
     // ✅ Utilisation des routes
     app.use("/api/auth", authRoutes);
