@@ -36,6 +36,8 @@ const colorPalette = [
 
 const localizer = momentLocalizer(moment);
 
+// ... imports en haut inchangés ...
+
 const PlanningGeneralScreen = () => {
   const { user } = useContext(AuthContext);
 
@@ -45,27 +47,17 @@ const PlanningGeneralScreen = () => {
   const [view, setView] = useState(Views.MONTH);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Modal pour détails / assignation d'une course
   const [eventOptionsVisible, setEventOptionsVisible] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState(null);
-  // États pour assignation
   const [selectedChauffeur, setSelectedChauffeur] = useState("");
   const [selectedColor, setSelectedColor] = useState("#1a73e8");
   const [chauffeurs, setChauffeurs] = useState([]);
 
-  // Modal de création d'une nouvelle course
   const [creationModalVisible, setCreationModalVisible] = useState(false);
   const [newEvent, setNewEvent] = useState({
-    nom: "",
-    prenom: "",
-    depart: "",
-    arrive: "",
-    heure: "",
-    date: moment().format("YYYY-MM-DD"),
-    description: "",
+    nom: "", prenom: "", depart: "", arrive: "", heure: "", date: moment().format("YYYY-MM-DD"), description: "",
   });
 
-  // Au besoin, pour upload de fichiers
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -73,7 +65,6 @@ const PlanningGeneralScreen = () => {
     fetchChauffeurs();
   }, []);
 
-  // Récupération des courses
   const fetchCourses = async () => {
     setLoading(true);
     try {
@@ -82,36 +73,29 @@ const PlanningGeneralScreen = () => {
         id: course._id,
         title: `${course.nom} ${course.prenom} - ${course.depart} → ${course.arrive}`,
         start: moment(`${course.date} ${course.heure}`, "YYYY-MM-DD HH:mm").toDate(),
-        end: moment(`${course.date} ${course.heure}`, "YYYY-MM-DD HH:mm")
-          .add(1, "hours")
-          .toDate(),
+        end: moment(`${course.date} ${course.heure}`, "YYYY-MM-DD HH:mm").add(1, "hours").toDate(),
         description: course.description,
         chauffeur: course.chauffeur || "",
         color: course.color || "#1a73e8",
       }));
       setEvents(formattedEvents);
     } catch (err) {
-      console.error("❌ Erreur récupération courses :", err);
       Alert.alert("Erreur", "Impossible de récupérer les courses.");
     } finally {
       setLoading(false);
     }
   };
 
-  // Récupération des chauffeurs (pour l’assignation)
   const fetchChauffeurs = async () => {
     try {
       const res = await axios.get(`${API_BASE_URL}/employees/chauffeurs`);
       const fullList = [...res.data];
       const patron = user?.nom || user?.name;
-      // Ajout du patron s’il n’est pas déjà présent
       if (patron && !fullList.find((c) => c.nom === patron)) {
         fullList.push({ nom: patron });
       }
-      const chauffeurNames = fullList.map((c) => c.nom);
-      setChauffeurs(chauffeurNames);
-    } catch (err) {
-      console.error("❌ Erreur récupération chauffeurs :", err);
+      setChauffeurs(fullList.map((c) => c.nom));
+    } catch {
       Alert.alert("Erreur", "Impossible de récupérer les chauffeurs.");
     }
   };
@@ -122,21 +106,11 @@ const PlanningGeneralScreen = () => {
     setRefreshing(false);
   };
 
-  // Créneau vide cliqué => ouverture du modal de création
   const handleSelectSlot = ({ start }) => {
-    setNewEvent({
-      nom: "",
-      prenom: "",
-      depart: "",
-      arrive: "",
-      heure: "",
-      date: moment(start).format("YYYY-MM-DD"),
-      description: "",
-    });
+    setNewEvent({ nom: "", prenom: "", depart: "", arrive: "", heure: "", date: moment(start).format("YYYY-MM-DD"), description: "" });
     setCreationModalVisible(true);
   };
 
-  // Course existante cliquée => modal d’assignation / changement de couleur
   const handleSelectEvent = (event) => {
     setSelectedEvent(event);
     setSelectedChauffeur(event.chauffeur || (user?.nom || user?.name) || "");
@@ -144,27 +118,36 @@ const PlanningGeneralScreen = () => {
     setEventOptionsVisible(true);
   };
 
-  // Mise à jour de l'événement : assignation + couleur
-  const updateEventAssignment = async () => {
-    if (!selectedEvent || !selectedChauffeur) {
-      Alert.alert("⚠️ Sélection requise", "Veuillez choisir un chauffeur.");
-      return;
-    }
+  const updateAssignment = async () => {
+    if (!selectedEvent || !selectedChauffeur) return Alert.alert("⚠️", "Choisissez un chauffeur");
     try {
       await axios.put(`${API_BASE_URL}/planning/send/${selectedEvent.id}`, {
         chauffeur: selectedChauffeur,
-        color: selectedColor, // Pour que la couleur soit sauvegardée (si la route le gère)
+        color: selectedColor,
       });
-      Alert.alert("🚀 Assignation réussie", "L'événement a été mis à jour.");
+      Alert.alert("✅ Assigné avec succès");
       fetchCourses();
       setEventOptionsVisible(false);
-    } catch (err) {
-      console.error("❌ Erreur lors de l'assignation :", err.response?.data || err.message);
-      Alert.alert("Erreur", "Impossible d'assigner le chauffeur.");
+    } catch {
+      Alert.alert("Erreur", "Échec de l'assignation");
     }
   };
 
-  // Création d'une nouvelle course (sans chauffeur, assignation après)
+  const updateColor = async () => {
+    if (!selectedEvent) return;
+    try {
+      await axios.put(`${API_BASE_URL}/planning/send/${selectedEvent.id}`, {
+        chauffeur: selectedEvent.chauffeur,
+        color: selectedColor,
+      });
+      Alert.alert("🎨 Couleur mise à jour !");
+      fetchCourses();
+      setEventOptionsVisible(false);
+    } catch {
+      Alert.alert("Erreur", "Échec de la mise à jour de la couleur");
+    }
+  };
+
   const handleSubmitNewEvent = async () => {
     const { nom, prenom, depart, arrive, heure, date, description } = newEvent;
     if (!nom || !prenom || !depart || !arrive || !heure || !description || !date) {
@@ -173,26 +156,16 @@ const PlanningGeneralScreen = () => {
     }
     try {
       await axios.post(`${API_BASE_URL}/planning`, {
-        nom,
-        prenom,
-        depart,
-        arrive,
-        heure,
-        date,
-        description,
-        // on ne passe pas de chauffeur => le back mettra "Patron" ou rien
-        statut: "En attente",
+        nom, prenom, depart, arrive, heure, date, description, statut: "En attente",
       });
       Alert.alert("✅ Course ajoutée !");
       setCreationModalVisible(false);
       fetchCourses();
-    } catch (err) {
-      console.error("❌ Erreur ajout course :", err);
+    } catch {
       Alert.alert("Erreur", "Impossible d'ajouter la course.");
     }
   };
 
-  // Navigation par date (boutons fléchés)
   const handleDateBackward = () => {
     setCurrentDate(moment(currentDate).subtract(1, "days").toDate());
   };
@@ -203,30 +176,18 @@ const PlanningGeneralScreen = () => {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.header}>
-        👤 Connecté en tant que : {user?.nom || user?.name}
-      </Text>
+      <Text style={styles.header}>👤 Connecté en tant que : {user?.nom || user?.name}</Text>
       <Text style={styles.title}>📅 Planning Général</Text>
 
-      {/* Navigation par date */}
       <View style={styles.dateNavContainer}>
-        <TouchableOpacity onPress={handleDateBackward}>
-          <Text style={styles.navButton}>◀️</Text>
-        </TouchableOpacity>
-        <Text style={styles.currentDateText}>
-          {moment(currentDate).format("YYYY-MM-DD")}
-        </Text>
-        <TouchableOpacity onPress={handleDateForward}>
-          <Text style={styles.navButton}>▶️</Text>
-        </TouchableOpacity>
+        <TouchableOpacity onPress={handleDateBackward}><Text style={styles.navButton}>◀️</Text></TouchableOpacity>
+        <Text style={styles.currentDateText}>{moment(currentDate).format("YYYY-MM-DD")}</Text>
+        <TouchableOpacity onPress={handleDateForward}><Text style={styles.navButton}>▶️</Text></TouchableOpacity>
       </View>
 
-      {/* Refresh Control */}
       <ScrollView
         style={styles.refreshContainer}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#007bff" />
-        }
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#007bff" />}
       />
 
       {loading ? (
@@ -258,7 +219,7 @@ const PlanningGeneralScreen = () => {
         </View>
       )}
 
-      {/* Modal de création d'une nouvelle course (sans assignation) */}
+      {/* Modals */}
       <Modal visible={creationModalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
@@ -274,53 +235,33 @@ const PlanningGeneralScreen = () => {
                   placeholderTextColor="#777"
                 />
               ))}
-              {/* On retire l'assignation de chauffeur ici */}
               <View style={styles.modalActions}>
-                <TouchableOpacity style={styles.modalButton} onPress={handleSubmitNewEvent}>
-                  <Text style={styles.modalButtonText}>✅ Ajouter</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.modalButton, styles.cancelButton]}
-                  onPress={() => setCreationModalVisible(false)}
-                >
-                  <Text style={styles.modalButtonText}>❌ Annuler</Text>
-                </TouchableOpacity>
+                <TouchableOpacity style={styles.modalButton} onPress={handleSubmitNewEvent}><Text style={styles.modalButtonText}>✅ Ajouter</Text></TouchableOpacity>
+                <TouchableOpacity style={[styles.modalButton, styles.cancelButton]} onPress={() => setCreationModalVisible(false)}><Text style={styles.modalButtonText}>❌ Annuler</Text></TouchableOpacity>
               </View>
             </ScrollView>
           </View>
         </View>
       </Modal>
 
-      {/* Modal de détails / assignation d'une course */}
       <Modal visible={eventOptionsVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
             <ScrollView contentContainerStyle={styles.modalContent}>
               <Text style={styles.modalTitle}>📄 Détails de la Course</Text>
               <Text style={styles.detailText}>🚖 {selectedEvent?.title}</Text>
-              <Text style={styles.detailText}>
-                📅 {moment(selectedEvent?.start).format("LL")}
-              </Text>
-              <Text style={styles.detailText}>
-                🕒 {moment(selectedEvent?.start).format("HH:mm")}
-              </Text>
-              <Text style={styles.detailText}>📍 Départ: {selectedEvent?.depart}</Text>
-              <Text style={styles.detailText}>📍 Arrivée: {selectedEvent?.arrive}</Text>
-              <Text style={styles.detailText}>📄 Description: {selectedEvent?.description}</Text>
+              <Text style={styles.detailText}>📅 {moment(selectedEvent?.start).format("LL")}</Text>
+              <Text style={styles.detailText}>🕒 {moment(selectedEvent?.start).format("HH:mm")}</Text>
 
               <Text style={styles.modalLabel}>🚖 Réassigner :</Text>
-              <Picker
-                selectedValue={selectedChauffeur}
-                style={styles.picker}
-                onValueChange={(itemValue) => setSelectedChauffeur(itemValue)}
-              >
+              <Picker selectedValue={selectedChauffeur} style={styles.picker} onValueChange={(val) => setSelectedChauffeur(val)}>
                 <Picker.Item label="-- Sélectionner --" value="" />
-                {chauffeurs.map((c, index) => (
-                  <Picker.Item key={index} label={c} value={c} />
+                {chauffeurs.map((c, idx) => (
+                  <Picker.Item key={idx} label={c} value={c} />
                 ))}
               </Picker>
 
-              <Text style={styles.modalLabel}>Choisissez une couleur :</Text>
+              <Text style={styles.modalLabel}>🎨 Couleur :</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                 {colorPalette.map((color) => (
                   <TouchableOpacity
@@ -336,15 +277,9 @@ const PlanningGeneralScreen = () => {
               </ScrollView>
 
               <View style={styles.modalActions}>
-                <TouchableOpacity style={styles.modalButton} onPress={updateEventAssignment}>
-                  <Text style={styles.modalButtonText}>🚀 Envoyer</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.modalButton, styles.cancelButton]}
-                  onPress={() => setEventOptionsVisible(false)}
-                >
-                  <Text style={styles.modalButtonText}>❌ Fermer</Text>
-                </TouchableOpacity>
+                <TouchableOpacity style={styles.modalButton} onPress={updateAssignment}><Text style={styles.modalButtonText}>🚖 Assigner</Text></TouchableOpacity>
+                <TouchableOpacity style={styles.modalButton} onPress={updateColor}><Text style={styles.modalButtonText}>🎨 Sauver Couleur</Text></TouchableOpacity>
+                <TouchableOpacity style={[styles.modalButton, styles.cancelButton]} onPress={() => setEventOptionsVisible(false)}><Text style={styles.modalButtonText}>❌ Fermer</Text></TouchableOpacity>
               </View>
             </ScrollView>
           </View>
@@ -355,6 +290,8 @@ const PlanningGeneralScreen = () => {
 };
 
 export default PlanningGeneralScreen;
+
+// ... styles inchangés
 
 // -----------------------------------------------------------
 // STYLES
