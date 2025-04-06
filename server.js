@@ -61,7 +61,7 @@ connectDB()
       origin: [
         "http://localhost:8081",
         "http://172.20.10.2:8081",
-        "https://chipper-buttercream-f5e4b1.netlify.app", // ✅ autorisé CORS
+        "https://chipper-buttercream-f5e4b1.netlify.app",
       ],
       methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
       allowedHeaders: ["Content-Type", "Authorization"],
@@ -83,7 +83,8 @@ connectDB()
     const chatRoutes = require("./routes/chatRoutes");
     const employeeRoutes = require("./routes/employeeRoutes");
     const invitationRoutes = require("./routes/invitationRoutes");
-    const reservationRoutes = require("./routes/reservationRoutes"); // ✅ AJOUT pour formulaire
+    const reservationRoutes = require("./routes/reservationRoutes");
+    const notificationRoutes = require("./routes/notificationRoutes"); // ✅ Notification
 
     // ✅ Utilisation des routes
     app.use("/api/auth", authRoutes);
@@ -93,7 +94,8 @@ connectDB()
     app.use("/api/chat", chatRoutes);
     app.use("/api/employees", employeeRoutes);
     app.use("/api/invitation", invitationRoutes);
-    app.use("/api/reservations", reservationRoutes); // ✅ pour Netlify
+    app.use("/api/reservations", reservationRoutes);
+    app.use("/api/notifications", notificationRoutes); // ✅ Notifications
 
     // ✅ Route de test
     app.get("/", (req, res) => res.send("🚀 Serveur opérationnel et prêt à l'emploi !"));

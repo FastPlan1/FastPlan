@@ -22,22 +22,12 @@ router.post("/", async (req, res) => {
       entrepriseId,
     } = req.body;
 
-    if (
-      !nom ||
-      !prenom ||
-      !email ||
-      !telephone ||
-      !depart ||
-      !arrive ||
-      !date ||
-      !heure
-    ) {
-      return res
-        .status(400)
-        .json({ error: "⚠️ Tous les champs obligatoires doivent être remplis." });
+    if (!nom || !prenom || !email || !telephone || !depart || !arrive || !date || !heure) {
+      return res.status(400).json({
+        error: "⚠️ Tous les champs obligatoires doivent être remplis.",
+      });
     }
 
-    // ✅ Ne filtre plus l'entrepriseId : accepte les ObjectId ou UUID (temp-...)
     const nouvelleReservation = new Reservation({
       nom,
       prenom,
@@ -59,12 +49,11 @@ router.post("/", async (req, res) => {
   }
 });
 
-// ✅ Récupérer toutes les demandes de réservations d'une entreprise (patron)
+// ✅ Récupérer toutes les demandes d'une entreprise
 router.get("/entreprise/:entrepriseId", async (req, res) => {
   try {
     const { entrepriseId } = req.params;
     const reservations = await Reservation.find({ entrepriseId }).sort({ createdAt: -1 });
-
     res.status(200).json(reservations);
   } catch (err) {
     console.error("❌ Erreur récupération réservations :", err);
@@ -72,7 +61,7 @@ router.get("/entreprise/:entrepriseId", async (req, res) => {
   }
 });
 
-// ✅ Accepter une demande de réservation
+// ✅ Accepter une réservation
 router.put("/accepter/:id", async (req, res) => {
   try {
     const reservation = await Reservation.findByIdAndUpdate(
@@ -94,6 +83,8 @@ router.put("/accepter/:id", async (req, res) => {
       heure: reservation.heure,
       description: reservation.description,
       statut: "En attente",
+      chauffeur: "Patron", // ✅ Important pour affichage immédiat
+      color: "#1a73e8",     // ✅ Couleur par défaut pour l’agenda
     });
 
     await newCourse.save();
@@ -108,7 +99,7 @@ router.put("/accepter/:id", async (req, res) => {
   }
 });
 
-// ✅ Refuser une demande de réservation
+// ✅ Refuser une réservation
 router.put("/refuser/:id", async (req, res) => {
   try {
     const reservation = await Reservation.findByIdAndUpdate(
@@ -128,11 +119,10 @@ router.put("/refuser/:id", async (req, res) => {
   }
 });
 
-// ✅ Supprimer une demande de réservation
+// ✅ Supprimer une réservation
 router.delete("/:id", async (req, res) => {
   try {
     const deleted = await Reservation.findByIdAndDelete(req.params.id);
-
     if (!deleted) {
       return res.status(404).json({ error: "Réservation non trouvée." });
     }
@@ -144,7 +134,7 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
-// 📌 ✅ Générer lien unique pour les clients (à envoyer par mail)
+// 📌 Générer lien unique pour les clients
 router.post("/generer-lien/:entrepriseId", async (req, res) => {
   try {
     const lienUnique = crypto.randomBytes(8).toString("hex");
@@ -165,7 +155,7 @@ router.post("/generer-lien/:entrepriseId", async (req, res) => {
   }
 });
 
-// 📌 ✅ Récupération des infos via lien unique
+// 📌 Récupérer l'entreprise par lien unique
 router.get("/client/:lienReservation", async (req, res) => {
   try {
     const entreprise = await Entreprise.findOne({
@@ -186,7 +176,7 @@ router.get("/client/:lienReservation", async (req, res) => {
   }
 });
 
-// 📌 ✅ Soumission du formulaire client par lien unique
+// 📌 Soumission du formulaire client
 router.post("/client/:lienReservation", async (req, res) => {
   const {
     nom,
