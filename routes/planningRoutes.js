@@ -4,7 +4,7 @@ const Planning = require("../models/Planning");
 const multer = require("multer");
 const path = require("path");
 
-// 📦 Multer : accepter tous les fichiers
+// 📦 Multer pour fichiers joints
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     cb(null, "uploads/");
@@ -16,16 +16,19 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
+/* ----------------- ✅ ROUTES ------------------- */
+
 // ✅ Ajouter une course
 router.post("/", async (req, res) => {
   try {
-    const { nom, prenom, depart, arrive, heure, description, date, chauffeur } = req.body;
+    const { nom, prenom, depart, arrive, heure, description, date, chauffeur, entrepriseId } = req.body;
 
-    if (!nom || !prenom || !depart || !arrive || !heure || !description || !date) {
+    if (!nom || !prenom || !depart || !arrive || !heure || !description || !date || !entrepriseId) {
       return res.status(400).json({ error: "⚠️ Tous les champs requis doivent être remplis." });
     }
 
     const newCourse = new Planning({
+      entrepriseId,
       nom,
       prenom,
       depart,
@@ -34,7 +37,7 @@ router.post("/", async (req, res) => {
       description,
       date,
       chauffeur: chauffeur || "Patron",
-      statut: "En attente"
+      statut: "En attente",
     });
 
     await newCourse.save();
@@ -45,10 +48,13 @@ router.post("/", async (req, res) => {
   }
 });
 
-// ✅ Récupérer toutes les courses
+// ✅ Récupérer toutes les courses d’une entreprise
 router.get("/", async (req, res) => {
   try {
-    const courses = await Planning.find().sort({ date: 1, heure: 1 });
+    const { entrepriseId } = req.query;
+    if (!entrepriseId) return res.status(400).json({ error: "❌ entrepriseId requis" });
+
+    const courses = await Planning.find({ entrepriseId }).sort({ date: 1, heure: 1 });
     res.status(200).json(courses);
   } catch (err) {
     console.error("❌ Erreur récupération planning :", err);
@@ -56,13 +62,19 @@ router.get("/", async (req, res) => {
   }
 });
 
-// ✅ Récupérer le planning d’un chauffeur
+// ✅ Récupérer le planning d’un chauffeur dans son entreprise
 router.get("/chauffeur/:chauffeurNom", async (req, res) => {
   try {
+    const { entrepriseId } = req.query;
     const chauffeurNom = decodeURIComponent(req.params.chauffeurNom);
+
+    if (!entrepriseId) return res.status(400).json({ error: "❌ entrepriseId requis" });
+
     const courses = await Planning.find({
-      chauffeur: { $regex: new RegExp(`^${chauffeurNom}$`, "i") }
+      entrepriseId,
+      chauffeur: { $regex: new RegExp(`^${chauffeurNom}$`, "i") },
     }).sort({ date: 1, heure: 1 });
+
     res.status(200).json(courses);
   } catch (err) {
     console.error("❌ Erreur récupération planning chauffeur :", err);
@@ -74,9 +86,7 @@ router.get("/chauffeur/:chauffeurNom", async (req, res) => {
 router.put("/send/:id", async (req, res) => {
   try {
     const { chauffeur, color } = req.body;
-    if (!chauffeur) {
-      return res.status(400).json({ error: "⚠️ Le chauffeur doit être spécifié." });
-    }
+    if (!chauffeur) return res.status(400).json({ error: "⚠️ Le chauffeur doit être spécifié." });
 
     const updatedCourse = await Planning.findByIdAndUpdate(
       req.params.id,
@@ -84,9 +94,7 @@ router.put("/send/:id", async (req, res) => {
       { new: true }
     );
 
-    if (!updatedCourse) {
-      return res.status(404).json({ message: "❌ Course non trouvée." });
-    }
+    if (!updatedCourse) return res.status(404).json({ message: "❌ Course non trouvée." });
 
     res.status(200).json({ message: "🚖 Course envoyée !", course: updatedCourse });
   } catch (err) {
@@ -95,23 +103,20 @@ router.put("/send/:id", async (req, res) => {
   }
 });
 
-// ✅ Modifier uniquement la couleur d'une course
+// ✅ Modifier uniquement la couleur
 router.put("/color/:id", async (req, res) => {
   const { color } = req.body;
-
   try {
     const updatedCourse = await Planning.findByIdAndUpdate(
       req.params.id,
       { color },
       { new: true }
     );
-    if (!updatedCourse) {
-      return res.status(404).json({ message: "❌ Course non trouvée." });
-    }
+    if (!updatedCourse) return res.status(404).json({ message: "❌ Course non trouvée." });
     res.status(200).json({ message: "🎨 Couleur mise à jour", course: updatedCourse });
-  } catch (error) {
-    console.error("❌ Erreur mise à jour couleur :", error);
-    res.status(500).json({ message: "Erreur serveur : " + error.message });
+  } catch (err) {
+    console.error("❌ Erreur mise à jour couleur :", err);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -124,9 +129,7 @@ router.put("/finish/:id", async (req, res) => {
       { new: true }
     );
 
-    if (!updatedCourse) {
-      return res.status(404).json({ message: "❌ Course non trouvée." });
-    }
+    if (!updatedCourse) return res.status(404).json({ message: "❌ Course non trouvée." });
 
     console.log(`🔔 ALERTE : Course terminée par ${updatedCourse.chauffeur}`);
     res.status(200).json({ message: "✅ Course terminée", course: updatedCourse });
@@ -136,10 +139,13 @@ router.put("/finish/:id", async (req, res) => {
   }
 });
 
-// ✅ Récupérer toutes les courses terminées
+// ✅ Récupérer les courses terminées d’une entreprise
 router.get("/terminees", async (req, res) => {
   try {
-    const courses = await Planning.find({ statut: "Terminée" }).sort({ date: -1, heure: -1 });
+    const { entrepriseId } = req.query;
+    if (!entrepriseId) return res.status(400).json({ error: "❌ entrepriseId requis" });
+
+    const courses = await Planning.find({ statut: "Terminée", entrepriseId }).sort({ date: -1, heure: -1 });
     res.status(200).json(courses);
   } catch (err) {
     console.error("❌ Erreur récupération historique :", err);
@@ -151,16 +157,8 @@ router.get("/terminees", async (req, res) => {
 router.put("/price/:id", async (req, res) => {
   try {
     const { prix } = req.body;
-
-    const updated = await Planning.findByIdAndUpdate(
-      req.params.id,
-      { prix },
-      { new: true }
-    );
-
-    if (!updated) {
-      return res.status(404).json({ message: "❌ Course non trouvée." });
-    }
+    const updated = await Planning.findByIdAndUpdate(req.params.id, { prix }, { new: true });
+    if (!updated) return res.status(404).json({ message: "❌ Course non trouvée." });
 
     res.status(200).json({ message: "💰 Prix mis à jour", course: updated });
   } catch (err) {
@@ -173,10 +171,7 @@ router.put("/price/:id", async (req, res) => {
 router.delete("/:id", async (req, res) => {
   try {
     const deleted = await Planning.findByIdAndDelete(req.params.id);
-
-    if (!deleted) {
-      return res.status(404).json({ message: "❌ Course non trouvée." });
-    }
+    if (!deleted) return res.status(404).json({ message: "❌ Course non trouvée." });
 
     res.status(200).json({ message: "🗑️ Course supprimée", course: deleted });
   } catch (err) {
@@ -188,24 +183,17 @@ router.delete("/:id", async (req, res) => {
 // ✅ Upload de pièce jointe
 router.post("/upload/:id", upload.single("file"), async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: "Aucun fichier envoyé." });
-    }
+    if (!req.file) return res.status(400).json({ error: "Aucun fichier envoyé." });
 
     const filePath = `/uploads/${req.file.filename}`;
-
     const course = await Planning.findById(req.params.id);
-    if (!course) {
-      return res.status(404).json({ message: "❌ Course non trouvée." });
-    }
+    if (!course) return res.status(404).json({ message: "❌ Course non trouvée." });
 
-    const updatedFiles = Array.isArray(course.pieceJointe)
+    course.pieceJointe = Array.isArray(course.pieceJointe)
       ? [...course.pieceJointe, filePath]
       : [filePath];
 
-    course.pieceJointe = updatedFiles;
     await course.save();
-
     res.status(200).json({ message: "📎 Fichier attaché avec succès", course });
   } catch (err) {
     console.error("❌ Erreur upload fichier :", err);
