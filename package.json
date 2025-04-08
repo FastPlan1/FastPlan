@@ -21,6 +21,7 @@
     "cloudinary": "^2.6.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
+    "exceljs": "^4.4.0",
     "expo": "^52.0.39",
     "expo-clipboard": "~7.0.1",
     "expo-document-picker": "~13.0.3",
