@@ -9,6 +9,7 @@ import {
   FlatList,
   ScrollView,
   Alert,
+  Linking,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import axios from 'axios';
@@ -20,16 +21,21 @@ const ClientsScreen = () => {
   const [clients, setClients] = useState([]);
   const [filteredClients, setFilteredClients] = useState([]);
   const [searchText, setSearchText] = useState('');
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [selectedClient, setSelectedClient] = useState(null);
+  const [showModal, setShowModal] = useState(false); // pour ajout/modification
+  const [selectedClient, setSelectedClient] = useState(null); // pour détails
 
-  // Champs du formulaire d'ajout
+  // Champs du formulaire (pour ajout ou modification)
   const [nom, setNom] = useState('');
   const [prenom, setPrenom] = useState('');
   const [adresse, setAdresse] = useState('');
   const [telephone, setTelephone] = useState('');
+  const [caisseSociale, setCaisseSociale] = useState(''); // optionnel, 1 phrase
   const [carteVitaleFile, setCarteVitaleFile] = useState(null);
   const [bonsTransportFiles, setBonsTransportFiles] = useState([]);
+
+  // Etat pour savoir si l'on est en mode édition
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingClientId, setEditingClientId] = useState(null);
 
   useEffect(() => {
     if (user && user.id) {
@@ -67,13 +73,24 @@ const ClientsScreen = () => {
     }
   };
 
-  const handleAddClient = async () => {
+  const resetForm = () => {
+    setNom('');
+    setPrenom('');
+    setAdresse('');
+    setTelephone('');
+    setCaisseSociale('');
+    setCarteVitaleFile(null);
+    setBonsTransportFiles([]);
+  };
+
+  const handleAddOrEditClient = async () => {
     const formData = new FormData();
     formData.append('nom', nom);
     formData.append('prenom', prenom);
     formData.append('adresse', adresse);
     formData.append('telephone', telephone);
     formData.append('entrepriseId', user.id);
+    formData.append('caisseSociale', caisseSociale);
 
     if (carteVitaleFile) {
       formData.append('carteVitale', {
@@ -91,23 +108,57 @@ const ClientsScreen = () => {
     });
 
     try {
-      await axios.post(`${API_BASE_URL}/clients/add`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      Alert.alert("✅ Succès", "Client ajouté !");
-      // Réinitialiser le formulaire
-      setNom('');
-      setPrenom('');
-      setAdresse('');
-      setTelephone('');
-      setCarteVitaleFile(null);
-      setBonsTransportFiles([]);
-      setShowAddModal(false);
+      if (isEditing) {
+        // Mode modification
+        await axios.put(`${API_BASE_URL}/clients/${editingClientId}`, formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        Alert.alert("✅ Succès", "Client modifié !");
+      } else {
+        // Mode ajout
+        await axios.post(`${API_BASE_URL}/clients/add`, formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        Alert.alert("✅ Succès", "Client ajouté !");
+      }
+      resetForm();
+      setShowModal(false);
+      setIsEditing(false);
+      setEditingClientId(null);
       fetchClients();
     } catch (error) {
-      console.error("Erreur lors de l'ajout du client :", error.response?.data || error.message);
-      Alert.alert("Erreur", "Impossible d'ajouter le client.");
+      console.error("Erreur lors de l'ajout/modification du client :", error.response?.data || error.message);
+      Alert.alert("Erreur", "Impossible d'ajouter/modifier le client.");
     }
+  };
+
+  const handleDeleteClient = async (clientId) => {
+    Alert.alert("Confirmation", "Voulez-vous vraiment supprimer ce client ?", [
+      { text: "Annuler", style: "cancel" },
+      {
+        text: "Supprimer",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await axios.delete(`${API_BASE_URL}/clients/${clientId}`);
+            Alert.alert("✅ Client supprimé");
+            fetchClients();
+            setSelectedClient(null);
+          } catch (error) {
+            console.error("Erreur lors de la suppression du client :", error.response?.data || error.message);
+            Alert.alert("Erreur", "Impossible de supprimer le client.");
+          }
+        },
+      },
+    ]);
+  };
+
+  // Fonction pour ouvrir l'export Excel dans le navigateur
+  const handleExportExcel = () => {
+    const exportUrl = `${API_BASE_URL}/clients/export/${user.id}`;
+    Linking.openURL(exportUrl).catch(() =>
+      Alert.alert("Erreur", "Impossible d'ouvrir le lien d'exportation.")
+    );
   };
 
   const renderClientItem = ({ item }) => (
@@ -118,9 +169,30 @@ const ClientsScreen = () => {
     </TouchableOpacity>
   );
 
+  // Préparer le formulaire pour la modification
+  const startEditClient = (client) => {
+    setIsEditing(true);
+    setEditingClientId(client._id);
+    setNom(client.nom);
+    setPrenom(client.prenom);
+    setAdresse(client.adresse);
+    setTelephone(client.telephone);
+    setCaisseSociale(client.caisseSociale || '');
+    // Pour les fichiers, on peut laisser vide ; l'utilisateur pourra re-sélectionner s'il veut modifier
+    setCarteVitaleFile(null);
+    setBonsTransportFiles([]);
+    setShowModal(true);
+    setSelectedClient(null);
+  };
+
   return (
     <View style={styles.container}>
       <Text style={styles.screenTitle}>Clients</Text>
+      
+      {/* Bouton Export Excel */}
+      <TouchableOpacity style={styles.exportButton} onPress={handleExportExcel}>
+        <Text style={styles.exportButtonText}>Exporter en Excel</Text>
+      </TouchableOpacity>
 
       {/* Barre de recherche */}
       <View style={styles.searchContainer}>
@@ -142,15 +214,15 @@ const ClientsScreen = () => {
       />
 
       {/* Bouton d'ajout */}
-      <TouchableOpacity style={styles.addButton} onPress={() => setShowAddModal(true)}>
+      <TouchableOpacity style={styles.addButton} onPress={() => { resetForm(); setIsEditing(false); setShowModal(true); }}>
         <Text style={styles.addButtonText}>Ajouter un Client</Text>
       </TouchableOpacity>
 
-      {/* Modal pour ajouter un client */}
-      <Modal visible={showAddModal} animationType="slide" transparent>
+      {/* Modal pour ajouter ou modifier un client */}
+      <Modal visible={showModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
-            <Text style={styles.modalTitle}>Ajouter un Client</Text>
+            <Text style={styles.modalTitle}>{isEditing ? "Modifier un Client" : "Ajouter un Client"}</Text>
             <ScrollView contentContainerStyle={styles.modalContent}>
               <TextInput
                 style={styles.modalInput}
@@ -181,6 +253,13 @@ const ClientsScreen = () => {
                 keyboardType="phone-pad"
                 placeholderTextColor="#777"
               />
+              <TextInput
+                style={styles.modalInput}
+                placeholder="Caisse sociale (en une phrase)"
+                value={caisseSociale}
+                onChangeText={setCaisseSociale}
+                placeholderTextColor="#777"
+              />
               <TouchableOpacity style={styles.modalButton} onPress={() => pickFile(setCarteVitaleFile)}>
                 <Text style={styles.modalButtonText}>📎 Ajouter Carte Vitale</Text>
               </TouchableOpacity>
@@ -195,10 +274,10 @@ const ClientsScreen = () => {
                   <Text key={index} style={styles.fileName}>{file.name}</Text>
                 ))}
               <View style={styles.modalActions}>
-                <TouchableOpacity style={styles.actionButton} onPress={handleAddClient}>
-                  <Text style={styles.actionButtonText}>Enregistrer</Text>
+                <TouchableOpacity style={styles.actionButton} onPress={handleAddOrEditClient}>
+                  <Text style={styles.actionButtonText}>{isEditing ? "Enregistrer les modifications" : "Enregistrer"}</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.actionButton, styles.cancelButton]} onPress={() => setShowAddModal(false)}>
+                <TouchableOpacity style={[styles.actionButton, styles.cancelButton]} onPress={() => setShowModal(false)}>
                   <Text style={styles.actionButtonText}>Annuler</Text>
                 </TouchableOpacity>
               </View>
@@ -215,36 +294,86 @@ const ClientsScreen = () => {
               {selectedClient && (
                 <>
                   <Text style={styles.modalTitle}>Détails du Client</Text>
-                  <Text style={styles.detailText}><Text style={styles.detailLabel}>Nom :</Text> {selectedClient.nom}</Text>
-                  <Text style={styles.detailText}><Text style={styles.detailLabel}>Prénom :</Text> {selectedClient.prenom}</Text>
-                  <Text style={styles.detailText}><Text style={styles.detailLabel}>Adresse :</Text> {selectedClient.adresse}</Text>
-                  <Text style={styles.detailText}><Text style={styles.detailLabel}>Téléphone :</Text> {selectedClient.telephone}</Text>
+                  <Text style={styles.detailText}>
+                    <Text style={styles.detailLabel}>Nom :</Text> {selectedClient.nom}
+                  </Text>
+                  <Text style={styles.detailText}>
+                    <Text style={styles.detailLabel}>Prénom :</Text> {selectedClient.prenom}
+                  </Text>
+                  <Text style={styles.detailText}>
+                    <Text style={styles.detailLabel}>Adresse :</Text> {selectedClient.adresse}
+                  </Text>
+                  <Text style={styles.detailText}>
+                    <Text style={styles.detailLabel}>Téléphone :</Text> {selectedClient.telephone}
+                  </Text>
                   {selectedClient.email && (
-                    <Text style={styles.detailText}><Text style={styles.detailLabel}>Email :</Text> {selectedClient.email}</Text>
+                    <Text style={styles.detailText}>
+                      <Text style={styles.detailLabel}>Email :</Text> {selectedClient.email}
+                    </Text>
+                  )}
+                  {selectedClient.caisseSociale && (
+                    <Text style={styles.detailText}>
+                      <Text style={styles.detailLabel}>Caisse sociale :</Text> {selectedClient.caisseSociale}
+                    </Text>
                   )}
                   {selectedClient.carteVitale && (
                     <View style={styles.attachmentContainer}>
                       <Text style={styles.detailLabel}>Carte Vitale :</Text>
-                      <Text style={styles.attachmentText}>{selectedClient.carteVitale.split('/').pop()}</Text>
+                      <TouchableOpacity
+                        onPress={() =>
+                          Linking.openURL(
+                            `${API_BASE_URL.replace('/api', '')}/${selectedClient.carteVitale}`
+                          ).catch(() =>
+                            Alert.alert("Erreur", "Impossible d'ouvrir le fichier.")
+                          )
+                        }
+                      >
+                        <Text style={styles.attachmentText}>
+                          {selectedClient.carteVitale.split('/').pop()}
+                        </Text>
+                      </TouchableOpacity>
                     </View>
                   )}
                   {selectedClient.bonsTransport && selectedClient.bonsTransport.length > 0 && (
                     <View style={styles.attachmentContainer}>
                       <Text style={styles.detailLabel}>Bons Transport :</Text>
                       {selectedClient.bonsTransport.map((bon, index) => (
-                        <Text key={index} style={styles.attachmentText}>{bon.split('/').pop()}</Text>
+                        <TouchableOpacity
+                          key={index}
+                          onPress={() =>
+                            Linking.openURL(
+                              `${API_BASE_URL.replace('/api', '')}/${bon}`
+                            ).catch(() =>
+                              Alert.alert("Erreur", "Impossible d'ouvrir le fichier.")
+                            )
+                          }
+                        >
+                          <Text style={styles.attachmentText}>{bon.split('/').pop()}</Text>
+                        </TouchableOpacity>
                       ))}
                     </View>
                   )}
+                  <View style={styles.modalActions}>
+                    <TouchableOpacity style={[styles.actionButton, styles.editButton]} onPress={() => startEditClient(selectedClient)}>
+                      <Text style={styles.actionButtonText}>Modifier</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.actionButton, styles.cancelButton]} onPress={() => handleDeleteClient(selectedClient._id)}>
+                      <Text style={styles.actionButtonText}>Supprimer</Text>
+                    </TouchableOpacity>
+                  </View>
                 </>
               )}
-              <TouchableOpacity style={[styles.actionButton, styles.cancelButton, { marginTop: 20 }]} onPress={() => setSelectedClient(null)}>
+              <TouchableOpacity
+                style={[styles.actionButton, styles.cancelButton, { marginTop: 20 }]}
+                onPress={() => setSelectedClient(null)}
+              >
                 <Text style={styles.actionButtonText}>Fermer</Text>
               </TouchableOpacity>
             </ScrollView>
           </View>
         </View>
       </Modal>
+
     </View>
   );
 };
@@ -261,6 +390,18 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     color: "#333",
     textAlign: "center",
+  },
+  exportButton: {
+    backgroundColor: "#ffc107",
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: "center",
+    marginBottom: 15,
+  },
+  exportButtonText: {
+    color: "#333",
+    fontSize: 16,
+    fontWeight: "bold",
   },
   searchContainer: {
     marginBottom: 15,
@@ -376,11 +517,13 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     flex: 1,
-    backgroundColor: "#28a745",
     padding: 12,
     borderRadius: 8,
     alignItems: "center",
     marginHorizontal: 5,
+  },
+  editButton: {
+    backgroundColor: "#17a2b8",
   },
   cancelButton: {
     backgroundColor: "#dc3545",
