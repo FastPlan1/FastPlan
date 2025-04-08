@@ -68,7 +68,10 @@ const PlanningGeneralScreen = () => {
   const fetchCourses = async () => {
     setLoading(true);
     try {
-      const res = await axios.get(`${API_BASE_URL}/planning`);
+      const res = await axios.get(`${API_BASE_URL}/planning`, {
+        params: { entrepriseId: user?.entrepriseId }
+      });
+      
       const formattedEvents = res.data.map((course) => ({
         id: course._id,
         title: `${course.nom} ${course.prenom} - ${course.depart} → ${course.arrive}`,

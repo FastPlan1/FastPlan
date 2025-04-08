@@ -18,7 +18,25 @@ export const AuthProvider = ({ children }) => {
         if (storedUser) {
           const parsed = JSON.parse(storedUser);
           if (!parsed.id && parsed._id) parsed.id = parsed._id;
-
+  
+          // 🔧 Corrige le cas où entrepriseId est manquant
+          if (!parsed.entrepriseId && parsed.role === "patron") {
+            try {
+              const entrepriseRes = await axios.get(`${API_BASE_URL}/entreprise/by-user/${parsed._id}`);
+              parsed.entrepriseId = entrepriseRes.data.entrepriseId;
+  
+              // 🔄 Mets à jour l’utilisateur côté backend et localStorage
+              await axios.patch(`${API_BASE_URL}/auth/users/${parsed._id}`, {
+                entrepriseId: parsed.entrepriseId,
+              });
+  
+              await AsyncStorage.setItem("user", JSON.stringify(parsed));
+            } catch (e) {
+              console.warn("⚠️ Impossible de compléter entrepriseId depuis le cache :", e.message);
+              parsed.entrepriseId = `temp-${uuidv4()}`;
+            }
+          }
+  
           setUser(parsed);
           setIsAuthenticated(true);
         }
@@ -28,8 +46,10 @@ export const AuthProvider = ({ children }) => {
         setLoading(false);
       }
     };
+  
     loadUser();
   }, []);
+  
 
   const login = async (email, password) => {
     try {
