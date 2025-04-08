@@ -106,6 +106,8 @@ router.put("/send/:id", async (req, res) => {
 // ✅ Modifier uniquement la couleur
 router.put("/color/:id", async (req, res) => {
   const { color } = req.body;
+  console.log("🎨 Requête reçue pour changement de couleur :", req.params.id, color); // 👈
+
   try {
     const updatedCourse = await Planning.findByIdAndUpdate(
       req.params.id,
