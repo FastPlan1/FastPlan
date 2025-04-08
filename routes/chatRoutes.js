@@ -29,6 +29,25 @@ router.post("/create", async (req, res) => {
       return res.status(400).json({ message: "Liste de membres requise." });
     }
 
+    // 🔐 Vérifie que le créateur existe et récupère son entrepriseId
+    const creator = await User.findById(createdBy);
+    if (!creator || !creator.entrepriseId) {
+      return res.status(400).json({ message: "Créateur invalide ou entreprise non définie." });
+    }
+
+    // 🔍 Récupère tous les utilisateurs mentionnés
+    const users = await User.find({ _id: { $in: members } });
+
+    if (users.length !== members.length) {
+      return res.status(400).json({ message: "Un ou plusieurs membres sont invalides." });
+    }
+
+    // 🛡 Vérifie que tous les membres appartiennent à la même entreprise
+    const invalidUsers = users.filter((u) => u.entrepriseId !== creator.entrepriseId);
+    if (invalidUsers.length > 0) {
+      return res.status(403).json({ message: "Tous les membres doivent appartenir à la même entreprise." });
+    }
+
     const conversation = new Conversation({
       name: isGroup ? name : "",
       isGroup,
