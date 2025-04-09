@@ -25,10 +25,11 @@ router.post('/add', upload.fields([
   { name: 'carteVitale', maxCount: 1 },
   { name: 'bonsTransport', maxCount: 5 }
 ]), async (req, res) => {
+  console.log("📁 Fichiers reçus côté serveur :", req.files); // ← AJOUTE CETTE LIGNE
+
   try {
     const { nom, prenom, adresse, telephone, entrepriseId, caisseSociale } = req.body;
 
-    // Générer une adresse email unique si non fournie
     const email = req.body.email || `${nom.replace(/\s+/g, "").toLowerCase()}-${Date.now()}@client.com`;
 
     const carteVitaleFile = req.files['carteVitale'] ? req.files['carteVitale'][0].path : null;
@@ -41,7 +42,7 @@ router.post('/add', upload.fields([
       telephone,
       entrepriseId,
       email,
-      caisseSociale, // Champ optionnel pour la caisse sociale (texte en une phrase)
+      caisseSociale,
       carteVitale: carteVitaleFile,
       bonsTransport: bonsTransportFiles,
     });
@@ -53,6 +54,7 @@ router.post('/add', upload.fields([
     res.status(500).json({ message: error.message });
   }
 });
+
 
 // PUT /:id : Modification d'un client
 router.put('/:id', upload.fields([
