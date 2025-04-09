@@ -3,9 +3,9 @@ const router = express.Router();
 const multer = require('multer');
 const Client = require('../models/Client');
 const fs = require('fs');
-const ExcelJS = require('exceljs'); // Pour l'export Excel
+const ExcelJS = require('exceljs');
 
-// Configuration Multer
+// Configuration de Multer pour le stockage des fichiers clients
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const dir = './uploads/clients/';
@@ -18,10 +18,9 @@ const storage = multer.diskStorage({
     cb(null, Date.now() + '_' + file.originalname);
   },
 });
-
 const upload = multer({ storage });
 
-// Ajout client avec upload
+// POST /add : Ajout d'un client (gestion des fichiers et caisse sociale)
 router.post('/add', upload.fields([
   { name: 'carteVitale', maxCount: 1 },
   { name: 'bonsTransport', maxCount: 5 }
@@ -41,8 +40,8 @@ router.post('/add', upload.fields([
       adresse,
       telephone,
       entrepriseId,
-      email, // Ajout de l'email généré
-      caisseSociale, // Champ optionnel "Caisse sociale"
+      email,
+      caisseSociale, // Champ optionnel pour la caisse sociale (texte en une phrase)
       carteVitale: carteVitaleFile,
       bonsTransport: bonsTransportFiles,
     });
@@ -55,31 +54,21 @@ router.post('/add', upload.fields([
   }
 });
 
-// Route pour modifier un client
+// PUT /:id : Modification d'un client
 router.put('/:id', upload.fields([
   { name: 'carteVitale', maxCount: 1 },
   { name: 'bonsTransport', maxCount: 5 }
 ]), async (req, res) => {
   try {
     const { nom, prenom, adresse, telephone, entrepriseId, caisseSociale } = req.body;
-    // Si un nouveau fichier est envoyé pour la carteVitale, on le récupère
-    const carteVitaleFile = req.files['carteVitale'] ? req.files['carteVitale'][0].path : undefined;
-    // Pour les bons de transport
-    const bonsTransportFiles = req.files['bonsTransport'] ? req.files['bonsTransport'].map(f => f.path) : undefined;
+    const updateData = { nom, prenom, adresse, telephone, entrepriseId, caisseSociale };
 
-    // Construire l'objet de mise à jour
-    const updateData = {
-      nom,
-      prenom,
-      adresse,
-      telephone,
-      entrepriseId,
-      caisseSociale,
-    };
-
-    // Ne modifier ces champs que si de nouveaux fichiers ont été envoyés
-    if (carteVitaleFile !== undefined) updateData.carteVitale = carteVitaleFile;
-    if (bonsTransportFiles !== undefined) updateData.bonsTransport = bonsTransportFiles;
+    if (req.files['carteVitale']) {
+      updateData.carteVitale = req.files['carteVitale'][0].path;
+    }
+    if (req.files['bonsTransport']) {
+      updateData.bonsTransport = req.files['bonsTransport'].map(f => f.path);
+    }
 
     const client = await Client.findByIdAndUpdate(req.params.id, updateData, { new: true });
     if (!client) {
@@ -92,7 +81,7 @@ router.put('/:id', upload.fields([
   }
 });
 
-// Route pour récupérer les clients par entrepriseId
+// GET /:entrepriseId : Récupérer la liste des clients d'une entreprise
 router.get('/:entrepriseId', async (req, res) => {
   try {
     const clients = await Client.find({ entrepriseId: req.params.entrepriseId });
@@ -103,7 +92,7 @@ router.get('/:entrepriseId', async (req, res) => {
   }
 });
 
-// Route pour supprimer un client
+// DELETE /:id : Supprimer un client
 router.delete('/:id', async (req, res) => {
   try {
     await Client.findByIdAndDelete(req.params.id);
@@ -114,19 +103,19 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-// Route pour exporter en Excel la base de clients pour une entreprise
+// GET /export/:entrepriseId : Exporter la liste des clients en Excel
 router.get('/export/:entrepriseId', async (req, res) => {
   try {
     const { entrepriseId } = req.params;
     const clients = await Client.find({ entrepriseId });
-
+    
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Clients');
 
-    // Ajout des en-têtes
+    // Ajout de la ligne d'en-tête
     worksheet.addRow(['Nom', 'Prénom', 'Adresse', 'Téléphone', 'Email', 'Caisse sociale']);
 
-    // Ajout des données de chaque client
+    // Ajout des données pour chaque client
     clients.forEach(client => {
       worksheet.addRow([
         client.nom,
@@ -138,7 +127,6 @@ router.get('/export/:entrepriseId', async (req, res) => {
       ]);
     });
 
-    // Définition des headers de la réponse
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', 'attachment; filename=clients.xlsx');
     await workbook.xlsx.write(res);
