@@ -3,11 +3,12 @@ const router = express.Router();
 const Planning = require("../models/Planning");
 const multer = require("multer");
 const path = require("path");
+const ExcelJS = require("exceljs");
 
 // 📦 Multer pour fichiers joints
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, "uploads/");
+    cb(null, "uploads/"); // Vous pouvez modifier ce dossier si besoin
   },
   filename: function (req, file, cb) {
     const ext = path.extname(file.originalname);
@@ -16,12 +17,12 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-/* ----------------- ✅ ROUTES ------------------- */
+/* ------------------ ROUTES ------------------ */
 
 // ✅ Ajouter une course
 router.post("/", async (req, res) => {
   try {
-    const { nom, prenom, depart, arrive, heure, description, date, chauffeur, entrepriseId } = req.body;
+    const { nom, prenom, depart, arrive, heure, description, date, chauffeur, entrepriseId, caisseSociale } = req.body;
 
     if (!nom || !prenom || !depart || !arrive || !heure || !description || !date || !entrepriseId) {
       return res.status(400).json({ error: "⚠️ Tous les champs requis doivent être remplis." });
@@ -38,6 +39,7 @@ router.post("/", async (req, res) => {
       date,
       chauffeur: chauffeur || "Patron",
       statut: "En attente",
+      caisseSociale: caisseSociale || ""
     });
 
     await newCourse.save();
@@ -82,7 +84,7 @@ router.get("/chauffeur/:chauffeurNom", async (req, res) => {
   }
 });
 
-// ✅ Envoyer une course à un chauffeur
+// ✅ Envoyer une course à un chauffeur (affectation)
 router.put("/send/:id", async (req, res) => {
   try {
     const { chauffeur, color } = req.body;
@@ -106,7 +108,7 @@ router.put("/send/:id", async (req, res) => {
 // ✅ Modifier uniquement la couleur
 router.put("/color/:id", async (req, res) => {
   const { color } = req.body;
-  console.log("🎨 Requête reçue pour changement de couleur :", req.params.id, color); // 👈
+  console.log("🎨 Requête reçue pour changement de couleur :", req.params.id, color);
 
   try {
     const updatedCourse = await Planning.findByIdAndUpdate(
@@ -199,6 +201,62 @@ router.post("/upload/:id", upload.single("file"), async (req, res) => {
     res.status(200).json({ message: "📎 Fichier attaché avec succès", course });
   } catch (err) {
     console.error("❌ Erreur upload fichier :", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ✨ Nouveaux endpoints pour partager une course via un lien
+
+// ✅ Récupérer les détails d'une course à partir de l'ID (pour un lien partagé)
+router.get("/course/:id", async (req, res) => {
+  try {
+    const course = await Planning.findById(req.params.id);
+    if (!course) return res.status(404).json({ message: "❌ Course non trouvée." });
+    res.status(200).json(course);
+  } catch (err) {
+    console.error("❌ Erreur récupération course :", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ✅ Accepter une course envoyée par lien (changer son entreprise)
+router.put("/accept/:id", async (req, res) => {
+  try {
+    const { entrepriseId } = req.body;
+    if (!entrepriseId)
+      return res.status(400).json({ error: "❌ entrepriseId requis" });
+
+    const updatedCourse = await Planning.findByIdAndUpdate(
+      req.params.id,
+      { statut: "Acceptée", entrepriseId },
+      { new: true }
+    );
+    if (!updatedCourse)
+      return res.status(404).json({ message: "❌ Course non trouvée." });
+    res.status(200).json({ message: "✅ Course acceptée", course: updatedCourse });
+  } catch (err) {
+    console.error("❌ Erreur acceptation course :", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ✅ Refuser une course envoyée par lien
+router.put("/refuse/:id", async (req, res) => {
+  try {
+    const { entrepriseId } = req.body;
+    if (!entrepriseId)
+      return res.status(400).json({ error: "❌ entrepriseId requis" });
+
+    const updatedCourse = await Planning.findByIdAndUpdate(
+      req.params.id,
+      { statut: "Refusée", entrepriseId },
+      { new: true }
+    );
+    if (!updatedCourse)
+      return res.status(404).json({ message: "❌ Course non trouvée." });
+    res.status(200).json({ message: "❌ Course refusée", course: updatedCourse });
+  } catch (err) {
+    console.error("❌ Erreur refus course :", err);
     res.status(500).json({ error: err.message });
   }
 });
