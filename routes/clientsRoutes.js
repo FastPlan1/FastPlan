@@ -1,140 +1,164 @@
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
-const Client = require('../models/Client');
 const fs = require('fs');
 const ExcelJS = require('exceljs');
+const Client = require('../models/Client');
 
-// Configuration de Multer pour le stockage des fichiers clients
+// ✅ Dossier d’upload
+const UPLOADS_DIR = './uploads/clients';
+
+// 📁 Création du dossier s’il n’existe pas
+if (!fs.existsSync(UPLOADS_DIR)) {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+}
+
+// 📦 Multer - Config de stockage
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const dir = './uploads/clients/';
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    cb(null, dir);
-  },
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + '_' + file.originalname);
-  },
+  destination: (req, file, cb) => cb(null, UPLOADS_DIR),
+  filename: (req, file, cb) => cb(null, Date.now() + '_' + file.originalname),
 });
+
 const upload = multer({ storage });
 
-// POST /add : Ajout d'un client (gestion des fichiers et caisse sociale)
-router.post('/add', upload.fields([
-  { name: 'carteVitale', maxCount: 1 },
-  { name: 'bonsTransport', maxCount: 5 }
-]), async (req, res) => {
-  console.log("📁 Fichiers reçus côté serveur :", req.files); // ← AJOUTE CETTE LIGNE
+// ✅ POST /add : Ajouter un client
+router.post(
+  '/add',
+  upload.fields([
+    { name: 'carteVitale', maxCount: 1 },
+    { name: 'bonsTransport', maxCount: 5 },
+  ]),
+  async (req, res) => {
+    try {
+      const { nom, prenom, adresse, telephone, entrepriseId, caisseSociale } = req.body;
 
-  try {
-    const { nom, prenom, adresse, telephone, entrepriseId, caisseSociale } = req.body;
+      const email = req.body.email || `${nom.replace(/\s+/g, '').toLowerCase()}-${Date.now()}@client.com`;
+      const carteVitale = req.files['carteVitale'] ? req.files['carteVitale'][0].path : null;
+      const bonsTransport = req.files['bonsTransport'] ? req.files['bonsTransport'].map(f => f.path) : [];
 
-    const email = req.body.email || `${nom.replace(/\s+/g, "").toLowerCase()}-${Date.now()}@client.com`;
+      const newClient = new Client({
+        nom,
+        prenom,
+        adresse,
+        telephone,
+        entrepriseId,
+        email,
+        caisseSociale,
+        carteVitale,
+        bonsTransport,
+      });
 
-    const carteVitaleFile = req.files['carteVitale'] ? req.files['carteVitale'][0].path : null;
-    const bonsTransportFiles = req.files['bonsTransport'] ? req.files['bonsTransport'].map(f => f.path) : [];
-
-    const newClient = new Client({
-      nom,
-      prenom,
-      adresse,
-      telephone,
-      entrepriseId,
-      email,
-      caisseSociale,
-      carteVitale: carteVitaleFile,
-      bonsTransport: bonsTransportFiles,
-    });
-
-    await newClient.save();
-    res.status(201).json(newClient);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: error.message });
+      await newClient.save();
+      res.status(201).json(newClient);
+    } catch (error) {
+      console.error("Erreur ajout client :", error);
+      res.status(500).json({ message: "Erreur ajout client : " + error.message });
+    }
   }
-});
+);
 
+// ✅ PUT /:id : Modifier un client
+router.put(
+  '/:id',
+  upload.fields([
+    { name: 'carteVitale', maxCount: 1 },
+    { name: 'bonsTransport', maxCount: 5 },
+  ]),
+  async (req, res) => {
+    try {
+      const { nom, prenom, adresse, telephone, entrepriseId, caisseSociale } = req.body;
 
-// PUT /:id : Modification d'un client
-router.put('/:id', upload.fields([
-  { name: 'carteVitale', maxCount: 1 },
-  { name: 'bonsTransport', maxCount: 5 }
-]), async (req, res) => {
-  try {
-    const { nom, prenom, adresse, telephone, entrepriseId, caisseSociale } = req.body;
-    const updateData = { nom, prenom, adresse, telephone, entrepriseId, caisseSociale };
+      const updateData = {
+        nom,
+        prenom,
+        adresse,
+        telephone,
+        entrepriseId,
+        caisseSociale,
+      };
 
-    if (req.files['carteVitale']) {
-      updateData.carteVitale = req.files['carteVitale'][0].path;
+      if (req.files['carteVitale']) {
+        updateData.carteVitale = req.files['carteVitale'][0].path;
+      }
+
+      if (req.files['bonsTransport']) {
+        updateData.bonsTransport = req.files['bonsTransport'].map(f => f.path);
+      }
+
+      const updatedClient = await Client.findByIdAndUpdate(req.params.id, updateData, { new: true });
+
+      if (!updatedClient) {
+        return res.status(404).json({ message: 'Client non trouvé' });
+      }
+
+      res.status(200).json(updatedClient);
+    } catch (error) {
+      console.error("Erreur modification client :", error);
+      res.status(500).json({ message: "Erreur modification client : " + error.message });
     }
-    if (req.files['bonsTransport']) {
-      updateData.bonsTransport = req.files['bonsTransport'].map(f => f.path);
-    }
-
-    const client = await Client.findByIdAndUpdate(req.params.id, updateData, { new: true });
-    if (!client) {
-      return res.status(404).json({ message: "Client non trouvé." });
-    }
-    res.status(200).json(client);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: error.message });
   }
-});
+);
 
-// GET /:entrepriseId : Récupérer la liste des clients d'une entreprise
+// ✅ GET /:entrepriseId : Récupérer tous les clients d'une entreprise
 router.get('/:entrepriseId', async (req, res) => {
   try {
     const clients = await Client.find({ entrepriseId: req.params.entrepriseId });
     res.json(clients);
   } catch (error) {
-    console.error(error);
+    console.error("Erreur récupération clients :", error);
     res.status(500).json({ message: error.message });
   }
 });
 
-// DELETE /:id : Supprimer un client
+// ✅ DELETE /:id : Supprimer un client
 router.delete('/:id', async (req, res) => {
   try {
     await Client.findByIdAndDelete(req.params.id);
-    res.status(200).json({ message: "Client supprimé." });
+    res.status(200).json({ message: 'Client supprimé.' });
   } catch (error) {
-    console.error(error);
+    console.error("Erreur suppression client :", error);
     res.status(500).json({ message: error.message });
   }
 });
 
-// GET /export/:entrepriseId : Exporter la liste des clients en Excel
+// ✅ GET /export/:entrepriseId : Exporter les clients en Excel
 router.get('/export/:entrepriseId', async (req, res) => {
   try {
-    const { entrepriseId } = req.params;
-    const clients = await Client.find({ entrepriseId });
-    
+    const clients = await Client.find({ entrepriseId: req.params.entrepriseId });
+
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Clients');
 
-    // Ajout de la ligne d'en-tête
-    worksheet.addRow(['Nom', 'Prénom', 'Adresse', 'Téléphone', 'Email', 'Caisse sociale']);
+    worksheet.columns = [
+      { header: 'Nom', key: 'nom', width: 20 },
+      { header: 'Prénom', key: 'prenom', width: 20 },
+      { header: 'Adresse', key: 'adresse', width: 30 },
+      { header: 'Téléphone', key: 'telephone', width: 15 },
+      { header: 'Email', key: 'email', width: 25 },
+      { header: 'Caisse sociale', key: 'caisseSociale', width: 30 },
+    ];
 
-    // Ajout des données pour chaque client
     clients.forEach(client => {
-      worksheet.addRow([
-        client.nom,
-        client.prenom,
-        client.adresse,
-        client.telephone,
-        client.email,
-        client.caisseSociale || ''
-      ]);
+      worksheet.addRow({
+        nom: client.nom,
+        prenom: client.prenom,
+        adresse: client.adresse,
+        telephone: client.telephone,
+        email: client.email,
+        caisseSociale: client.caisseSociale || '',
+      });
     });
 
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
     res.setHeader('Content-Disposition', 'attachment; filename=clients.xlsx');
+
     await workbook.xlsx.write(res);
     res.end();
   } catch (error) {
-    console.error(error);
+    console.error("Erreur export Excel :", error);
     res.status(500).json({ message: error.message });
   }
 });

@@ -1,3 +1,5 @@
+// 📁 src/screens/ClientsScreen.js
+
 import React, { useState, useEffect, useContext } from 'react';
 import {
   View,
@@ -16,44 +18,44 @@ import axios from 'axios';
 import { AuthContext } from '../context/AuthContext';
 import { API_BASE_URL } from '../config';
 
+// 🔗 Génère l'URL vers le fichier uploadé
+const getFichierURL = (chemin) => {
+  if (!chemin) return null;
+  const cleanedPath = chemin.replace(/^\/?uploads\//, '');
+  return `https://fastplan.onrender.com/uploads/${cleanedPath}`;
+};
+
 const ClientsScreen = () => {
   const { user } = useContext(AuthContext);
   const [clients, setClients] = useState([]);
   const [filteredClients, setFilteredClients] = useState([]);
   const [searchText, setSearchText] = useState('');
-  const [showModal, setShowModal] = useState(false); // pour ajout/modification
-  const [selectedClient, setSelectedClient] = useState(null); // pour détails
+  const [showModal, setShowModal] = useState(false);
+  const [selectedClient, setSelectedClient] = useState(null);
 
-  // Champs du formulaire (pour ajout ou modification)
   const [nom, setNom] = useState('');
   const [prenom, setPrenom] = useState('');
   const [adresse, setAdresse] = useState('');
   const [telephone, setTelephone] = useState('');
-  const [caisseSociale, setCaisseSociale] = useState(''); // optionnel, 1 phrase
+  const [caisseSociale, setCaisseSociale] = useState('');
   const [carteVitaleFile, setCarteVitaleFile] = useState(null);
   const [bonsTransportFiles, setBonsTransportFiles] = useState([]);
 
-  // Etat pour savoir si l'on est en mode édition
   const [isEditing, setIsEditing] = useState(false);
   const [editingClientId, setEditingClientId] = useState(null);
 
   useEffect(() => {
-    if (user && user.id) {
-      fetchClients();
-    } else {
-      console.log("⚠️ Utilisateur non défini", user);
-    }
+    if (user?.id) fetchClients();
   }, [user]);
 
   useEffect(() => {
-    if (searchText.trim() === '') {
-      setFilteredClients(clients);
-    } else {
-      const filtered = clients.filter(client =>
-        `${client.nom} ${client.prenom}`.toLowerCase().includes(searchText.toLowerCase())
-      );
-      setFilteredClients(filtered);
-    }
+    setFilteredClients(
+      searchText.trim() === ''
+        ? clients
+        : clients.filter(client =>
+            `${client.nom} ${client.prenom}`.toLowerCase().includes(searchText.toLowerCase())
+          )
+    );
   }, [searchText, clients]);
 
   const fetchClients = async () => {
@@ -61,13 +63,13 @@ const ClientsScreen = () => {
       const res = await axios.get(`${API_BASE_URL}/clients/${user.id}`);
       setClients(res.data);
     } catch (error) {
-      console.error("Erreur récupération clients :", error.response?.data || error.message);
-      Alert.alert("Erreur", "Impossible de récupérer la liste des clients.");
+      console.error("Erreur récupération clients :", error.message);
+      Alert.alert("Erreur", "Impossible de récupérer les clients.");
     }
   };
 
   const pickFile = async (setter, multiple = false) => {
-    let result = await DocumentPicker.getDocumentAsync({ type: "*/*", multiple });
+    const result = await DocumentPicker.getDocumentAsync({ type: "*/*", multiple });
     if (!result.canceled && result.assets) {
       setter(multiple ? result.assets : result.assets[0]);
     }
@@ -99,6 +101,7 @@ const ClientsScreen = () => {
         type: carteVitaleFile.mimeType || 'application/pdf',
       });
     }
+
     bonsTransportFiles.forEach(file => {
       formData.append('bonsTransport', {
         uri: file.uri,
@@ -109,17 +112,15 @@ const ClientsScreen = () => {
 
     try {
       if (isEditing) {
-        // Mode modification
         await axios.put(`${API_BASE_URL}/clients/${editingClientId}`, formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
-        Alert.alert("✅ Succès", "Client modifié !");
+        Alert.alert("✅ Client modifié !");
       } else {
-        // Mode ajout
         await axios.post(`${API_BASE_URL}/clients/add`, formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
-        Alert.alert("✅ Succès", "Client ajouté !");
+        Alert.alert("✅ Client ajouté !");
       }
       resetForm();
       setShowModal(false);
@@ -127,13 +128,13 @@ const ClientsScreen = () => {
       setEditingClientId(null);
       fetchClients();
     } catch (error) {
-      console.error("Erreur lors de l'ajout/modification du client :", error.response?.data || error.message);
-      Alert.alert("Erreur", "Impossible d'ajouter/modifier le client.");
+      console.error("Erreur ajout/modification client :", error.message);
+      Alert.alert("Erreur", "Impossible de sauvegarder le client.");
     }
   };
 
-  const handleDeleteClient = async (clientId) => {
-    Alert.alert("Confirmation", "Voulez-vous vraiment supprimer ce client ?", [
+  const handleDeleteClient = (clientId) => {
+    Alert.alert("Confirmation", "Supprimer ce client ?", [
       { text: "Annuler", style: "cancel" },
       {
         text: "Supprimer",
@@ -141,11 +142,11 @@ const ClientsScreen = () => {
         onPress: async () => {
           try {
             await axios.delete(`${API_BASE_URL}/clients/${clientId}`);
-            Alert.alert("✅ Client supprimé");
+            Alert.alert("✅ Client supprimé !");
             fetchClients();
             setSelectedClient(null);
           } catch (error) {
-            console.error("Erreur lors de la suppression du client :", error.response?.data || error.message);
+            console.error("Erreur suppression client :", error.message);
             Alert.alert("Erreur", "Impossible de supprimer le client.");
           }
         },
@@ -153,12 +154,23 @@ const ClientsScreen = () => {
     ]);
   };
 
-  // Fonction pour ouvrir l'export Excel dans le navigateur
   const handleExportExcel = () => {
     const exportUrl = `${API_BASE_URL}/clients/export/${user.id}`;
-    Linking.openURL(exportUrl).catch(() =>
-      Alert.alert("Erreur", "Impossible d'ouvrir le lien d'exportation.")
-    );
+    Linking.openURL(exportUrl).catch(() => Alert.alert("Erreur", "Lien invalide"));
+  };
+
+  const startEditClient = (client) => {
+    setIsEditing(true);
+    setEditingClientId(client._id);
+    setNom(client.nom);
+    setPrenom(client.prenom);
+    setAdresse(client.adresse);
+    setTelephone(client.telephone);
+    setCaisseSociale(client.caisseSociale || '');
+    setCarteVitaleFile(null);
+    setBonsTransportFiles([]);
+    setShowModal(true);
+    setSelectedClient(null);
   };
 
   const renderClientItem = ({ item }) => (
@@ -169,43 +181,22 @@ const ClientsScreen = () => {
     </TouchableOpacity>
   );
 
-  // Préparer le formulaire pour la modification
-  const startEditClient = (client) => {
-    setIsEditing(true);
-    setEditingClientId(client._id);
-    setNom(client.nom);
-    setPrenom(client.prenom);
-    setAdresse(client.adresse);
-    setTelephone(client.telephone);
-    setCaisseSociale(client.caisseSociale || '');
-    // Pour les fichiers, on peut laisser vide ; l'utilisateur pourra re-sélectionner s'il veut modifier
-    setCarteVitaleFile(null);
-    setBonsTransportFiles([]);
-    setShowModal(true);
-    setSelectedClient(null);
-  };
-
   return (
     <View style={styles.container}>
       <Text style={styles.screenTitle}>Clients</Text>
-      
-      {/* Bouton Export Excel */}
+
       <TouchableOpacity style={styles.exportButton} onPress={handleExportExcel}>
         <Text style={styles.exportButtonText}>Exporter en Excel</Text>
       </TouchableOpacity>
 
-      {/* Barre de recherche */}
-      <View style={styles.searchContainer}>
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Rechercher un client..."
-          value={searchText}
-          onChangeText={setSearchText}
-          placeholderTextColor="#777"
-        />
-      </View>
+      <TextInput
+        style={styles.searchInput}
+        placeholder="Rechercher un client..."
+        value={searchText}
+        onChangeText={setSearchText}
+        placeholderTextColor="#777"
+      />
 
-      {/* Liste des clients */}
       <FlatList
         data={filteredClients}
         keyExtractor={(item) => item._id}
@@ -213,66 +204,36 @@ const ClientsScreen = () => {
         contentContainerStyle={styles.listContainer}
       />
 
-      {/* Bouton d'ajout */}
       <TouchableOpacity style={styles.addButton} onPress={() => { resetForm(); setIsEditing(false); setShowModal(true); }}>
         <Text style={styles.addButtonText}>Ajouter un Client</Text>
       </TouchableOpacity>
 
-      {/* Modal pour ajouter ou modifier un client */}
+      {/* Modal ajout/modif */}
       <Modal visible={showModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
             <Text style={styles.modalTitle}>{isEditing ? "Modifier un Client" : "Ajouter un Client"}</Text>
             <ScrollView contentContainerStyle={styles.modalContent}>
-              <TextInput
-                style={styles.modalInput}
-                placeholder="Nom"
-                value={nom}
-                onChangeText={setNom}
-                placeholderTextColor="#777"
-              />
-              <TextInput
-                style={styles.modalInput}
-                placeholder="Prénom"
-                value={prenom}
-                onChangeText={setPrenom}
-                placeholderTextColor="#777"
-              />
-              <TextInput
-                style={styles.modalInput}
-                placeholder="Adresse"
-                value={adresse}
-                onChangeText={setAdresse}
-                placeholderTextColor="#777"
-              />
-              <TextInput
-                style={styles.modalInput}
-                placeholder="Téléphone"
-                value={telephone}
-                onChangeText={setTelephone}
-                keyboardType="phone-pad"
-                placeholderTextColor="#777"
-              />
-              <TextInput
-                style={styles.modalInput}
-                placeholder="Caisse sociale (en une phrase)"
-                value={caisseSociale}
-                onChangeText={setCaisseSociale}
-                placeholderTextColor="#777"
-              />
+              {[nom, prenom, adresse, telephone, caisseSociale].map((value, i) => (
+                <TextInput
+                  key={i}
+                  style={styles.modalInput}
+                  placeholder={["Nom", "Prénom", "Adresse", "Téléphone", "Caisse sociale (en une phrase)"][i]}
+                  value={value}
+                  onChangeText={[setNom, setPrenom, setAdresse, setTelephone, setCaisseSociale][i]}
+                  placeholderTextColor="#777"
+                />
+              ))}
               <TouchableOpacity style={styles.modalButton} onPress={() => pickFile(setCarteVitaleFile)}>
                 <Text style={styles.modalButtonText}>📎 Ajouter Carte Vitale</Text>
               </TouchableOpacity>
-              {carteVitaleFile && (
-                <Text style={styles.fileName}>{carteVitaleFile.name}</Text>
-              )}
+              {carteVitaleFile && <Text style={styles.fileName}>{carteVitaleFile.name}</Text>}
+
               <TouchableOpacity style={styles.modalButton} onPress={() => pickFile(setBonsTransportFiles, true)}>
                 <Text style={styles.modalButtonText}>📎 Ajouter Bons Transport</Text>
               </TouchableOpacity>
-              {bonsTransportFiles.length > 0 &&
-                bonsTransportFiles.map((file, index) => (
-                  <Text key={index} style={styles.fileName}>{file.name}</Text>
-                ))}
+              {bonsTransportFiles.map((f, i) => <Text key={i} style={styles.fileName}>{f.name}</Text>)}
+
               <View style={styles.modalActions}>
                 <TouchableOpacity style={styles.actionButton} onPress={handleAddOrEditClient}>
                   <Text style={styles.actionButtonText}>{isEditing ? "Enregistrer les modifications" : "Enregistrer"}</Text>
@@ -286,7 +247,7 @@ const ClientsScreen = () => {
         </View>
       </Modal>
 
-      {/* Modal pour afficher les détails du client */}
+      {/* Modal détails client */}
       <Modal visible={!!selectedClient} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.detailModalContainer}>
@@ -294,65 +255,39 @@ const ClientsScreen = () => {
               {selectedClient && (
                 <>
                   <Text style={styles.modalTitle}>Détails du Client</Text>
-                  <Text style={styles.detailText}>
-                    <Text style={styles.detailLabel}>Nom :</Text> {selectedClient.nom}
-                  </Text>
-                  <Text style={styles.detailText}>
-                    <Text style={styles.detailLabel}>Prénom :</Text> {selectedClient.prenom}
-                  </Text>
-                  <Text style={styles.detailText}>
-                    <Text style={styles.detailLabel}>Adresse :</Text> {selectedClient.adresse}
-                  </Text>
-                  <Text style={styles.detailText}>
-                    <Text style={styles.detailLabel}>Téléphone :</Text> {selectedClient.telephone}
-                  </Text>
-                  {selectedClient.email && (
-                    <Text style={styles.detailText}>
-                      <Text style={styles.detailLabel}>Email :</Text> {selectedClient.email}
+                  {[
+                    ["Nom", selectedClient.nom],
+                    ["Prénom", selectedClient.prenom],
+                    ["Adresse", selectedClient.adresse],
+                    ["Téléphone", selectedClient.telephone],
+                    ["Email", selectedClient.email],
+                    ["Caisse sociale", selectedClient.caisseSociale],
+                  ].filter(([_, v]) => v).map(([label, value], i) => (
+                    <Text key={i} style={styles.detailText}>
+                      <Text style={styles.detailLabel}>{label} :</Text> {value}
                     </Text>
-                  )}
-                  {selectedClient.caisseSociale && (
-                    <Text style={styles.detailText}>
-                      <Text style={styles.detailLabel}>Caisse sociale :</Text> {selectedClient.caisseSociale}
-                    </Text>
-                  )}
+                  ))}
+
                   {selectedClient.carteVitale && (
                     <View style={styles.attachmentContainer}>
                       <Text style={styles.detailLabel}>Carte Vitale :</Text>
-                      <TouchableOpacity
-                        onPress={() =>
-                          Linking.openURL(
-                            `${API_BASE_URL.replace('/api', '')}/${selectedClient.carteVitale}`
-                          ).catch(() =>
-                            Alert.alert("Erreur", "Impossible d'ouvrir le fichier.")
-                          )
-                        }
-                      >
-                        <Text style={styles.attachmentText}>
-                          {selectedClient.carteVitale.split('/').pop()}
-                        </Text>
+                      <TouchableOpacity onPress={() => Linking.openURL(getFichierURL(selectedClient.carteVitale)).catch(() => Alert.alert("Erreur", "Fichier non accessible."))}>
+                        <Text style={styles.attachmentText}>{selectedClient.carteVitale.split('/').pop()}</Text>
                       </TouchableOpacity>
                     </View>
                   )}
-                  {selectedClient.bonsTransport && selectedClient.bonsTransport.length > 0 && (
+
+                  {selectedClient.bonsTransport?.length > 0 && (
                     <View style={styles.attachmentContainer}>
                       <Text style={styles.detailLabel}>Bons Transport :</Text>
-                      {selectedClient.bonsTransport.map((bon, index) => (
-                        <TouchableOpacity
-                          key={index}
-                          onPress={() =>
-                            Linking.openURL(
-                              `${API_BASE_URL.replace('/api', '')}/${bon}`
-                            ).catch(() =>
-                              Alert.alert("Erreur", "Impossible d'ouvrir le fichier.")
-                            )
-                          }
-                        >
+                      {selectedClient.bonsTransport.map((bon, i) => (
+                        <TouchableOpacity key={i} onPress={() => Linking.openURL(getFichierURL(bon)).catch(() => Alert.alert("Erreur", "Fichier non accessible."))}>
                           <Text style={styles.attachmentText}>{bon.split('/').pop()}</Text>
                         </TouchableOpacity>
                       ))}
                     </View>
                   )}
+
                   <View style={styles.modalActions}>
                     <TouchableOpacity style={[styles.actionButton, styles.editButton]} onPress={() => startEditClient(selectedClient)}>
                       <Text style={styles.actionButtonText}>Modifier</Text>
@@ -363,22 +298,22 @@ const ClientsScreen = () => {
                   </View>
                 </>
               )}
-              <TouchableOpacity
-                style={[styles.actionButton, styles.cancelButton, { marginTop: 20 }]}
-                onPress={() => setSelectedClient(null)}
-              >
+              <TouchableOpacity style={[styles.actionButton, styles.cancelButton, { marginTop: 20 }]} onPress={() => setSelectedClient(null)}>
                 <Text style={styles.actionButtonText}>Fermer</Text>
               </TouchableOpacity>
             </ScrollView>
           </View>
         </View>
       </Modal>
-
     </View>
   );
 };
 
-const styles = StyleSheet.create({
+export default ClientsScreen;
+
+// Tu peux garder le fichier `styles` déjà écrit, il est correct 👍
+
+    const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#f7f7f7",
@@ -552,5 +487,3 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 });
-
-export default ClientsScreen;
