@@ -1,4 +1,3 @@
-// planningRoutes.js
 const express = require("express");
 const router = express.Router();
 const Planning = require("../models/Planning");
@@ -9,16 +8,16 @@ const ExcelJS = require("exceljs");
 // 📦 Configuration de Multer pour les fichiers joints
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, "uploads/"); // Changez ce dossier si besoin
+    cb(null, "uploads/"); // Changez ce dossier si nécessaire
   },
   filename: function (req, file, cb) {
     const ext = path.extname(file.originalname);
     cb(null, `piece-${Date.now()}${ext}`);
-  },
+  }
 });
 const upload = multer({ storage });
 
-/* ------------------ ROUTES ------------------ */
+// ==================== ROUTES ====================
 
 // ✅ Ajouter une course
 router.post("/", async (req, res) => {
@@ -70,7 +69,6 @@ router.get("/chauffeur/:chauffeurNom", async (req, res) => {
   try {
     const { entrepriseId } = req.query;
     const chauffeurNom = decodeURIComponent(req.params.chauffeurNom);
-
     if (!entrepriseId) return res.status(400).json({ error: "❌ entrepriseId requis" });
 
     const courses = await Planning.find({
@@ -132,7 +130,6 @@ router.put("/finish/:id", async (req, res) => {
       { statut: "Terminée" },
       { new: true }
     );
-
     if (!updatedCourse) return res.status(404).json({ message: "❌ Course non trouvée." });
 
     console.log(`🔔 ALERTE : Course terminée par ${updatedCourse.chauffeur}`);
@@ -176,7 +173,6 @@ router.delete("/:id", async (req, res) => {
   try {
     const deleted = await Planning.findByIdAndDelete(req.params.id);
     if (!deleted) return res.status(404).json({ message: "❌ Course non trouvée." });
-
     res.status(200).json({ message: "🗑️ Course supprimée", course: deleted });
   } catch (err) {
     console.error("❌ Erreur suppression course :", err);
@@ -188,15 +184,12 @@ router.delete("/:id", async (req, res) => {
 router.post("/upload/:id", upload.single("file"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "Aucun fichier envoyé." });
-
     const filePath = `/uploads/${req.file.filename}`;
     const course = await Planning.findById(req.params.id);
     if (!course) return res.status(404).json({ message: "❌ Course non trouvée." });
-
     course.pieceJointe = Array.isArray(course.pieceJointe)
       ? [...course.pieceJointe, filePath]
       : [filePath];
-
     await course.save();
     res.status(200).json({ message: "📎 Fichier attaché avec succès", course });
   } catch (err) {
@@ -205,9 +198,9 @@ router.post("/upload/:id", upload.single("file"), async (req, res) => {
   }
 });
 
-/* --- Nouveaux Endpoints pour partager une course via un lien --- */
+/* -------- Nouveaux Endpoints pour partager une course via un lien -------- */
 
-// ✅ Récupérer les détails d'une course pour le partage (via lien)
+// ✅ Récupérer les détails d'une course pour le partage
 router.get("/course/:id", async (req, res) => {
   try {
     const course = await Planning.findById(req.params.id);
@@ -219,19 +212,17 @@ router.get("/course/:id", async (req, res) => {
   }
 });
 
-// ✅ Accepter une course envoyée par lien (changer entreprise et statut)
+// ✅ Accepter une course partagée via lien (changer entreprise et statut)
 router.put("/accept/:id", async (req, res) => {
   try {
     const { entrepriseId } = req.body;
     if (!entrepriseId)
       return res.status(400).json({ error: "❌ entrepriseId requis" });
-
     const updatedCourse = await Planning.findByIdAndUpdate(
       req.params.id,
       { statut: "Acceptée", entrepriseId },
       { new: true }
     );
-
     if (!updatedCourse)
       return res.status(404).json({ message: "❌ Course non trouvée." });
     res.status(200).json({ message: "✅ Course acceptée", course: updatedCourse });
@@ -241,19 +232,17 @@ router.put("/accept/:id", async (req, res) => {
   }
 });
 
-// ✅ Refuser une course envoyée par lien
+// ✅ Refuser une course partagée via lien
 router.put("/refuse/:id", async (req, res) => {
   try {
     const { entrepriseId } = req.body;
     if (!entrepriseId)
       return res.status(400).json({ error: "❌ entrepriseId requis" });
-
     const updatedCourse = await Planning.findByIdAndUpdate(
       req.params.id,
       { statut: "Refusée", entrepriseId },
       { new: true }
     );
-
     if (!updatedCourse)
       return res.status(404).json({ message: "❌ Course non trouvée." });
     res.status(200).json({ message: "❌ Course refusée", course: updatedCourse });
