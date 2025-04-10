@@ -1,3 +1,4 @@
+// planningRoutes.js
 const express = require("express");
 const router = express.Router();
 const Planning = require("../models/Planning");
@@ -5,15 +6,15 @@ const multer = require("multer");
 const path = require("path");
 const ExcelJS = require("exceljs");
 
-// 📦 Multer pour fichiers joints
+// 📦 Configuration de Multer pour les fichiers joints
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, "uploads/"); // Vous pouvez modifier ce dossier si besoin
+    cb(null, "uploads/"); // Changez ce dossier si besoin
   },
   filename: function (req, file, cb) {
     const ext = path.extname(file.originalname);
     cb(null, `piece-${Date.now()}${ext}`);
-  }
+  },
 });
 const upload = multer({ storage });
 
@@ -105,11 +106,10 @@ router.put("/send/:id", async (req, res) => {
   }
 });
 
-// ✅ Modifier uniquement la couleur
+// ✅ Modifier uniquement la couleur d'une course
 router.put("/color/:id", async (req, res) => {
   const { color } = req.body;
   console.log("🎨 Requête reçue pour changement de couleur :", req.params.id, color);
-
   try {
     const updatedCourse = await Planning.findByIdAndUpdate(
       req.params.id,
@@ -205,9 +205,9 @@ router.post("/upload/:id", upload.single("file"), async (req, res) => {
   }
 });
 
-// ✨ Nouveaux endpoints pour partager une course via un lien
+/* --- Nouveaux Endpoints pour partager une course via un lien --- */
 
-// ✅ Récupérer les détails d'une course à partir de l'ID (pour un lien partagé)
+// ✅ Récupérer les détails d'une course pour le partage (via lien)
 router.get("/course/:id", async (req, res) => {
   try {
     const course = await Planning.findById(req.params.id);
@@ -219,7 +219,7 @@ router.get("/course/:id", async (req, res) => {
   }
 });
 
-// ✅ Accepter une course envoyée par lien (changer son entreprise)
+// ✅ Accepter une course envoyée par lien (changer entreprise et statut)
 router.put("/accept/:id", async (req, res) => {
   try {
     const { entrepriseId } = req.body;
@@ -231,6 +231,7 @@ router.put("/accept/:id", async (req, res) => {
       { statut: "Acceptée", entrepriseId },
       { new: true }
     );
+
     if (!updatedCourse)
       return res.status(404).json({ message: "❌ Course non trouvée." });
     res.status(200).json({ message: "✅ Course acceptée", course: updatedCourse });
@@ -252,6 +253,7 @@ router.put("/refuse/:id", async (req, res) => {
       { statut: "Refusée", entrepriseId },
       { new: true }
     );
+
     if (!updatedCourse)
       return res.status(404).json({ message: "❌ Course non trouvée." });
     res.status(200).json({ message: "❌ Course refusée", course: updatedCourse });
