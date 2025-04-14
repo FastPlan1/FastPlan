@@ -43,6 +43,11 @@ router.post("/upload/:id", upload.single("file"), async (req, res) => {
   }
 });
 
+router.get("/test", (req, res) => {
+  res.send("Route de test OK");
+});
+
+
 // Route pour récupérer une course avec ses détails
 router.get("/:id", async (req, res) => {
   try {
