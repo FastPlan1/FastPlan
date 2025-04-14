@@ -1,4 +1,4 @@
-const mongoose = require("mongoose");
+const mongoose = require('mongoose');
 
 const CourseSchema = new mongoose.Schema({
   nom: { type: String, required: true },
@@ -9,7 +9,8 @@ const CourseSchema = new mongoose.Schema({
   date: { type: String, required: true },
   description: { type: String },
   caisseSociale: { type: String },
-  chauffeur: { type: String },
+  chauffeur: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // ✅ pour le populate
+  client: { type: mongoose.Schema.Types.ObjectId, ref: 'Client' }, // ✅ manquait ici
   entrepriseId: { type: String },
   statut: {
     type: String,
