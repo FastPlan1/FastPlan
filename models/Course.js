@@ -1,15 +1,15 @@
 const mongoose = require("mongoose");
 
 const CourseSchema = new mongoose.Schema({
-  nom: { type: String, required: true },
-  prenom: { type: String, required: true },
+  nom: { type: String },
+  prenom: { type: String },
   depart: { type: String, required: true },
   arrive: { type: String, required: true },
-  heure: { type: String, required: true },
-  date: { type: String, required: true },
+  heure: { type: String },
+  date: { type: String },
   description: { type: String },
   caisseSociale: { type: String },
-  chauffeur: { type: String },
+  chauffeur: { type: String }, // chaîne de caractères
   entrepriseId: { type: String },
   statut: {
     type: String,
@@ -17,8 +17,8 @@ const CourseSchema = new mongoose.Schema({
     default: "En attente",
   },
   color: { type: String, default: "#1a73e8" },
-  createdAt: { type: Date, default: Date.now },
   fichiers: [{ type: String }],
+  createdAt: { type: Date, default: Date.now },
 });
 
 module.exports = mongoose.model("Course", CourseSchema);
