@@ -12,10 +12,11 @@ const planningSchema = new mongoose.Schema({
   chauffeur: { type: String, default: "non attribué" },
   statut: { type: String, default: "En attente" },
   pieceJointe: [{ type: String }],
+  fichiers: [{ type: String }], // ✅ Ajoute cette ligne
   prix: { type: Number, default: null },
-  color: { type: String, default: "#1a73e8" } // ✅ AJOUT ICI
+  color: { type: String, default: "#1a73e8" },
 }, {
-  timestamps: true
+  timestamps: true,
 });
 
 module.exports = mongoose.model("Planning", planningSchema);
