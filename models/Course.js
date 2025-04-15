@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
 const CourseSchema = new mongoose.Schema({
   nom: { type: String, required: true },
@@ -9,8 +9,7 @@ const CourseSchema = new mongoose.Schema({
   date: { type: String, required: true },
   description: { type: String },
   caisseSociale: { type: String },
-  chauffeur: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // ✅ pour le populate
-  client: { type: mongoose.Schema.Types.ObjectId, ref: 'Client' }, // ✅ manquait ici
+  chauffeur: { type: String },
   entrepriseId: { type: String },
   statut: {
     type: String,
@@ -19,6 +18,7 @@ const CourseSchema = new mongoose.Schema({
   },
   color: { type: String, default: "#1a73e8" },
   createdAt: { type: Date, default: Date.now },
+  fichiers: [{ type: String }],
 });
 
 module.exports = mongoose.model("Course", CourseSchema);
