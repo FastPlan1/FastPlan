@@ -23,9 +23,9 @@ const upload = multer({ storage });
 // ✅ Créer une nouvelle conversation (privée ou groupe)
 router.post("/create", async (req, res) => {
   try {
-    const { name, isGroup, members, createdBy } = req.body;
+    const { name, isGroup, members: originalMembers, createdBy } = req.body;
 
-    if (!Array.isArray(members) || members.length < 1) {
+    if (!Array.isArray(originalMembers) || originalMembers.length < 1) {
       return res.status(400).json({ message: "Liste de membres requise." });
     }
 
@@ -34,6 +34,11 @@ router.post("/create", async (req, res) => {
     if (!creator || !creator.entrepriseId) {
       return res.status(400).json({ message: "Créateur invalide ou entreprise non définie." });
     }
+
+    // 🧠 Ajoute automatiquement le créateur aux membres s’il n’y est pas
+    const members = originalMembers.includes(createdBy)
+      ? originalMembers
+      : [...originalMembers, createdBy];
 
     // 🔍 Récupère tous les utilisateurs mentionnés
     const users = await User.find({ _id: { $in: members } });
@@ -62,6 +67,7 @@ router.post("/create", async (req, res) => {
     res.status(500).json({ message: "Erreur serveur lors de la création." });
   }
 });
+
 
 // ✅ Récupérer les conversations d’un utilisateur
 router.get("/user/:userId", async (req, res) => {
