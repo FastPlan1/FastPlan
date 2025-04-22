@@ -124,4 +124,29 @@ router.get("/chauffeurs", async (req, res) => {
     }
 });
 
+
+// ✅ Récupérer les positions GPS de tous les chauffeurs (et du patron si besoin)
+router.get("/locations", async (req, res) => {
+    try {
+      // On suppose que vos utilisateurs ont des champs `latitude` et `longitude` dans User
+      const users = await User.find(
+        { role: { $in: ["chauffeur", "patron"] } },
+        "name latitude longitude"
+      );
+      // Filtrer ceux sans position
+      const locations = users
+        .filter(u => u.latitude != null && u.longitude != null)
+        .map(u => ({
+          id: u._id,
+          name: u.name,
+          latitude: u.latitude,
+          longitude: u.longitude,
+        }));
+      res.status(200).json(locations);
+    } catch (err) {
+      console.error("❌ Erreur récupération positions :", err);
+      res.status(500).json({ error: "Impossible de récupérer les positions" });
+    }
+  });
+  
 module.exports = router;
