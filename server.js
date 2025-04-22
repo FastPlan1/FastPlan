@@ -19,36 +19,46 @@ if (!process.env.JWT_SECRET || !process.env.MONGO_URI) {
 console.log("🔑 Clé JWT utilisée : OK (cachée)");
 console.log("🌍 MONGO_URI utilisée : OK (cachée)");
 
+// Connexion à MongoDB
 connectDB()
   .then(() => {
     console.log("✅ Connexion MongoDB réussie !");
 
     const app = express();
     const server = http.createServer(app);
+
+    // Initialise Socket.IO
     const io = new Server(server, {
       cors: {
         origin: [
           "http://localhost:8081",
           "http://172.20.10.2:8081",
-          "https://chipper-buttercream-f5e4b1.netlify.app", // ✅ ton site client Netlify
+          "https://chipper-buttercream-f5e4b1.netlify.app",
         ],
-        methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allowedHeaders: ["Content-Type", "Authorization"],
+        methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
+        allowedHeaders: ["Content‑Type","Authorization"],
         credentials: true,
       },
     });
 
-    // ✅ Socket.IO
-    io.on("connection", (socket) => {
+    // Gestion des connexions Socket.IO
+    io.on("connection", socket => {
       console.log("🟢 Nouveau client connecté :", socket.id);
 
-      socket.on("joinRoom", (roomId) => {
+      // Salle de chat/message
+      socket.on("joinRoom", roomId => {
         socket.join(roomId);
-        console.log(`👥 Socket ${socket.id} rejoint la salle ${roomId}`);
+        console.log(`👥 ${socket.id} a rejoint la salle ${roomId}`);
+      });
+      socket.on("sendMessage", data => {
+        io.to(data.conversationId).emit("newMessage", data);
       });
 
-      socket.on("sendMessage", (data) => {
-        io.to(data.conversationId).emit("newMessage", data);
+      // --- NOUVEAU : géolocalisation temps‑réel ---
+      socket.on("updateLocation", payload => {
+        // payload = { id, lat, lng, status, name }
+        // on rebroadcast à TOUS les clients managers
+        io.emit("driverLocationUpdate", payload);
       });
 
       socket.on("disconnect", () => {
@@ -56,68 +66,57 @@ connectDB()
       });
     });
 
-    // ✅ Middlewares
+    // === Middlewares Express ===
     app.use(cors({
       origin: [
         "http://localhost:8081",
         "http://172.20.10.2:8081",
         "https://chipper-buttercream-f5e4b1.netlify.app",
       ],
-      methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-      allowedHeaders: ["Content-Type", "Authorization"],
+      methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
+      allowedHeaders: ["Content‑Type","Authorization"],
       credentials: true,
     }));
     app.use(express.json());
     app.use(morgan("dev"));
 
-    // ✅ Fichiers statiques (uploads)
+    // Fichiers statiques pour les uploads
     app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-    console.log("✅ Middlewares activés avec gestion CORS, JSON et logs HTTP !");
+    console.log("✅ Middlewares activés avec CORS, JSON, logs et upload statique");
 
-    // ✅ Import des routes
-    const authRoutes = require("./routes/authRoutes");
-    const clientsRoutes = require("./routes/clientsRoutes");
-    const coursesRoutes = require("./routes/coursesRoutes");
-    const planningRoutes = require("./routes/planningRoutes");
-    const chatRoutes = require("./routes/chatRoutes");
-    const employeeRoutes = require("./routes/employeeRoutes");
-    const invitationRoutes = require("./routes/invitationRoutes");
-    const reservationRoutes = require("./routes/reservationRoutes");
-    const notificationsRoutes = require("./routes/notificationsRoutes"); // ✅ Notifications
+    // === Tes routes existantes ===
+    app.use("/api/auth", require("./routes/authRoutes"));
+    app.use("/api/clients", require("./routes/clientsRoutes"));
+    app.use("/api/courses", require("./routes/coursesRoutes"));
+    app.use("/api/planning", require("./routes/planningRoutes"));
+    app.use("/api/chat", require("./routes/chatRoutes"));
+    app.use("/api/employees", require("./routes/employeeRoutes"));
+    app.use("/api/invitation", require("./routes/invitationRoutes"));
+    app.use("/api/reservations", require("./routes/reservationRoutes"));
+    app.use("/api/notifications", require("./routes/notificationsRoutes"));
 
-    // ✅ Utilisation des routes
-    app.use("/api/auth", authRoutes);
-    app.use("/api/clients", clientsRoutes);
-    app.use("/api/courses", coursesRoutes);
-    app.use("/api/planning", planningRoutes);
-    app.use("/api/chat", chatRoutes);
-    app.use("/api/employees", employeeRoutes);
-    app.use("/api/invitation", invitationRoutes);
-    app.use("/api/reservations", reservationRoutes);
-    app.use("/api/notifications", notificationsRoutes); // ✅ Notifications
+    // Route de test
+    app.get("/", (req, res) =>
+      res.send("🚀 Serveur opérationnel et prêt à l'emploi avec Socket.IO !")
+    );
 
-    // ✅ Route de test
-    app.get("/", (req, res) => res.send("🚀 Serveur opérationnel et prêt à l'emploi !"));
-
-    // ✅ Route non trouvée
-    app.use("*", (req, res) => {
-      res.status(404).json({ error: "❌ Route non trouvée" });
-    });
-
-    // ✅ Erreur serveur
+    // 404 & erreur
+    app.use("*", (req, res) =>
+      res.status(404).json({ error: "❌ Route non trouvée" })
+    );
     app.use((err, req, res, next) => {
-      console.error("❌ Erreur serveur :", err.message);
+      console.error("❌ Erreur interne :", err.message);
       res.status(500).json({ error: err.message || "Erreur serveur interne" });
     });
 
-    // ✅ Lancement du serveur
+    // Démarrage du serveur HTTP + Socket.IO
     const PORT = process.env.PORT || 5000;
-    server.listen(PORT, () => {
-      console.log(`🚀 Serveur démarré sur le port ${PORT} et prêt à l'emploi avec Socket.IO activé !`);
-    });
+    server.listen(PORT, () =>
+      console.log(`🚀 Serveur démarré sur le port ${PORT} avec Socket.IO activé !`)
+    );
   })
-  .catch((err) => {
+  .catch(err => {
     console.error("❌ Échec de connexion MongoDB :", err);
     process.exit(1);
   });
