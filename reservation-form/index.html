@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Demande de réservation</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(to right, #ece9e6, #ffffff);
+      margin: 0;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+
+    .container {
+      background-color: #fff;
+      padding: 30px;
+      max-width: 500px;
+      width: 90%;
+      border-radius: 12px;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+    }
+
+    h2 {
+      text-align: center;
+      color: #333;
+      margin-bottom: 25px;
+    }
+
+    input,
+    textarea,
+    button {
+      width: 100%;
+      padding: 12px 15px;
+      margin-bottom: 15px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 16px;
+    }
+
+    input:focus,
+    textarea:focus {
+      outline: none;
+      border-color: #007bff;
+      box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.1);
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 80px;
+    }
+
+    button {
+      background-color: #007bff;
+      color: white;
+      border: none;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background-color 0.2s ease;
+    }
+
+    button:hover {
+      background-color: #0056b3;
+    }
+
+    #confirmation {
+      text-align: center;
+      font-weight: bold;
+      margin-top: 15px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Formulaire de Réservation</h2>
+    <form id="reservationForm">
+      <input type="text" placeholder="Nom" name="nom" required />
+      <input type="text" placeholder="Prénom" name="prenom" required />
+      <input type="email" placeholder="Email" name="email" required />
+      <input type="tel" placeholder="Téléphone" name="telephone" required />
+      <input type="text" placeholder="Lieu de départ" name="depart" required />
+      <input type="text" placeholder="Lieu d’arrivée" name="arrive" required />
+      <input type="date" name="date" required />
+      <input type="time" name="heure" required />
+      <textarea name="description" placeholder="Description (facultatif)"></textarea>
+      <button type="submit">Envoyer la demande</button>
+    </form>
+    <p id="confirmation"></p>
+  </div>
+
+  <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const entrepriseId = urlParams.get("e");
+
+    const form = document.getElementById("reservationForm");
+    const confirmation = document.getElementById("confirmation");
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+
+      const formData = new FormData(form);
+      const data = Object.fromEntries(formData.entries());
+      data.entrepriseId = entrepriseId;
+
+      try {
+        const res = await fetch("https://fastplan.onrender.com/api/reservations", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(data),
+        });
+
+        const result = await res.json();
+        if (res.ok) {
+          confirmation.innerText = "✅ Réservation envoyée avec succès !";
+          confirmation.style.color = "green";
+          form.reset();
+        } else {
+          confirmation.innerText = "❌ Erreur : " + (result.error || "Réessaye plus tard.");
+          confirmation.style.color = "red";
+        }
+      } catch (err) {
+        confirmation.innerText = "❌ Erreur réseau. Vérifie ta connexion.";
+        confirmation.style.color = "red";
+      }
+    });
+  </script>
+</body>
+</html>
