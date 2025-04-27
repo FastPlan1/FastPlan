@@ -8,7 +8,7 @@ const EmployeeCode = require("../models/codeInvitation");
 const User         = require("../models/User");
 
 // Middlewares
-const { authMiddleware, isAdminOrPatron } = require("../middleware/authMiddleware");
+const { authMiddleware, isPatron } = require("../middleware/authMiddleware");
 
 // ✅ Vérification du chargement du fichier
 console.log("📡 Routes de employeeRoutes.js chargées !");
@@ -17,7 +17,7 @@ console.log("📡 Routes de employeeRoutes.js chargées !");
 router.get(
   "/by-patron/:id",
   authMiddleware,
-  isAdminOrPatron,
+  isPatron,
   async (req, res) => {
     try {
       const patronId = req.params.id;
@@ -35,7 +35,7 @@ router.get(
 router.put(
   "/:id",
   authMiddleware,
-  isAdminOrPatron,
+  isPatron,
   async (req, res) => {
     const { id }   = req.params;
     const { role } = req.body;
@@ -64,7 +64,7 @@ router.put(
 router.get(
   "/codes/by-patron/:id",
   authMiddleware,
-  isAdminOrPatron,
+  isPatron,
   async (req, res) => {
     try {
       const patronId = req.params.id;
@@ -81,7 +81,7 @@ router.get(
 router.delete(
   "/delete-code/:id",
   authMiddleware,
-  isAdminOrPatron,
+  isPatron,
   async (req, res) => {
     try {
       const codeId = req.params.id;
@@ -101,13 +101,14 @@ router.delete(
 router.post(
   "/generate-code",
   authMiddleware,
-  isAdminOrPatron,
+  isPatron,
   async (req, res) => {
     try {
       const { patronId } = req.body;
       if (!patronId) {
         return res.status(400).json({ message: "ID du patron requis." });
       }
+      // Supprimer les anciens codes
       await EmployeeCode.deleteMany({ patron: patronId });
       const code = uuidv4().slice(0, 6).toUpperCase();
       const newCode = new EmployeeCode({ code, used: false, patron: patronId });
@@ -124,7 +125,7 @@ router.post(
 router.post(
   "/verify-code",
   authMiddleware,
-  isAdminOrPatron,
+  isPatron,
   async (req, res) => {
     try {
       const { code } = req.body;
@@ -144,7 +145,7 @@ router.post(
 router.put(
   "/use-code",
   authMiddleware,
-  isAdminOrPatron,
+  isPatron,
   async (req, res) => {
     try {
       const { code } = req.body;
@@ -164,7 +165,7 @@ router.put(
   }
 );
 
-// ✅ Récupérer tous les chauffeurs (auth requis uniquement)
+// ✅ Récupérer tous les chauffeurs (auth requis)
 router.get(
   "/chauffeurs",
   authMiddleware,
