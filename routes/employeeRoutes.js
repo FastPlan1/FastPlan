@@ -8,12 +8,19 @@ const EmployeeCode = require("../models/codeInvitation");
 const User         = require("../models/User");
 
 // Middlewares
-const { authMiddleware, isPatron } = require("../middleware/authMiddleware");
+const {
+  authMiddleware,
+  isPatron,
+  isChauffeur
+} = require("../middleware/authMiddleware");
 
 // ✅ Vérification du chargement du fichier
 console.log("📡 Routes de employeeRoutes.js chargées !");
 
-// ✅ Récupérer les employés d’un patron
+/**
+ * ✅ Récupérer les employés d’un patron
+ *  GET /employee/by-patron/:id
+ */
 router.get(
   "/by-patron/:id",
   authMiddleware,
@@ -31,7 +38,10 @@ router.get(
   }
 );
 
-// ✅ Mettre à jour le rôle d’un employé (chauffeur ↔ admin)
+/**
+ * ✅ Mettre à jour le rôle d’un employé (chauffeur ↔ admin ↔ patron)
+ *  PUT /employee/:id
+ */
 router.put(
   "/:id",
   authMiddleware,
@@ -40,7 +50,6 @@ router.put(
     const { id }   = req.params;
     const { role } = req.body;
 
-    // Valider le nouveau rôle
     if (!["chauffeur", "admin", "patron"].includes(role)) {
       return res.status(400).json({ message: "Rôle invalide." });
     }
@@ -60,7 +69,10 @@ router.put(
   }
 );
 
-// ✅ Récupérer les codes d’invitation d’un patron
+/**
+ * ✅ Récupérer les codes d’invitation d’un patron
+ *  GET /employee/codes/by-patron/:id
+ */
 router.get(
   "/codes/by-patron/:id",
   authMiddleware,
@@ -77,7 +89,10 @@ router.get(
   }
 );
 
-// ✅ Supprimer un code d’invitation
+/**
+ * ✅ Supprimer un code d’invitation
+ *  DELETE /employee/delete-code/:id
+ */
 router.delete(
   "/delete-code/:id",
   authMiddleware,
@@ -97,7 +112,10 @@ router.delete(
   }
 );
 
-// ✅ Générer un code d’invitation
+/**
+ * ✅ Générer un code d’invitation
+ *  POST /employee/generate-code
+ */
 router.post(
   "/generate-code",
   authMiddleware,
@@ -108,7 +126,6 @@ router.post(
       if (!patronId) {
         return res.status(400).json({ message: "ID du patron requis." });
       }
-      // Supprimer les anciens codes
       await EmployeeCode.deleteMany({ patron: patronId });
       const code = uuidv4().slice(0, 6).toUpperCase();
       const newCode = new EmployeeCode({ code, used: false, patron: patronId });
@@ -121,7 +138,10 @@ router.post(
   }
 );
 
-// ✅ Vérifier un code d’invitation
+/**
+ * ✅ Vérifier un code d’invitation
+ *  POST /employee/verify-code
+ */
 router.post(
   "/verify-code",
   authMiddleware,
@@ -141,7 +161,10 @@ router.post(
   }
 );
 
-// ✅ Marquer un code comme utilisé
+/**
+ * ✅ Marquer un code comme utilisé
+ *  PUT /employee/use-code
+ */
 router.put(
   "/use-code",
   authMiddleware,
@@ -165,7 +188,10 @@ router.put(
   }
 );
 
-// ✅ Récupérer tous les chauffeurs (auth requis)
+/**
+ * ✅ Récupérer tous les chauffeurs (auth requis)
+ *  GET /employee/chauffeurs
+ */
 router.get(
   "/chauffeurs",
   authMiddleware,
@@ -185,7 +211,10 @@ router.get(
   }
 );
 
-// ✅ Récupérer positions GPS de tous les chauffeurs et patron (auth requis)
+/**
+ * ✅ Récupérer positions GPS de tous les chauffeurs et patron (auth requis)
+ *  GET /employee/locations
+ */
 router.get(
   "/locations",
   authMiddleware,
@@ -193,7 +222,7 @@ router.get(
     try {
       const users = await User.find(
         { role: { $in: ["chauffeur", "patron"] } },
-        "name latitude longitude"
+        "name latitude longitude updatedAt"
       );
       const locations = users
         .filter(u => u.latitude != null && u.longitude != null)
@@ -202,11 +231,48 @@ router.get(
           name:      u.name,
           latitude:  u.latitude,
           longitude: u.longitude,
+          updatedAt: u.updatedAt,
         }));
       res.status(200).json(locations);
     } catch (err) {
       console.error("❌ Erreur récupération positions :", err);
       res.status(500).json({ error: "Impossible de récupérer les positions" });
+    }
+  }
+);
+
+/**
+ * ✅ Permettre aux chauffeurs d'envoyer leur position
+ *  POST /employee/location
+ */
+router.post(
+  "/location",
+  authMiddleware,
+  isChauffeur,
+  async (req, res) => {
+    try {
+      const chauffeurId = req.user.id;
+      const { latitude, longitude } = req.body;
+      if (
+        typeof latitude !== "number" ||
+        typeof longitude !== "number"
+      ) {
+        return res
+          .status(400)
+          .json({ message: "latitude et longitude numériques requis." });
+      }
+      const user = await User.findById(chauffeurId);
+      if (!user) {
+        return res.status(404).json({ message: "Chauffeur non trouvé." });
+      }
+      user.latitude  = latitude;
+      user.longitude = longitude;
+      user.updatedAt = new Date();
+      await user.save();
+      res.json({ message: "Position mise à jour." });
+    } catch (err) {
+      console.error("❌ Erreur mise à jour position :", err);
+      res.status(500).json({ message: "Erreur serveur." });
     }
   }
 );

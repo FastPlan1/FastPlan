@@ -5,7 +5,7 @@ const mongoose = require("mongoose");
 const userSchema = new mongoose.Schema({
   name: {
     type: String,
-    required: true,                // ex : "Jean Dupont"
+    required: true,                // ex. "Jean Dupont"
     trim: true,
   },
   email: {
@@ -29,6 +29,20 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: null,
   },
+  // ─── Champs de géolocalisation ───
+  latitude: {
+    type: Number,
+    default: null,
+  },
+  longitude: {
+    type: Number,
+    default: null,
+  },
+  updatedAt: {
+    type: Date,
+    default: null,
+  },
+
   createdAt: {
     type: Date,
     default: Date.now,
