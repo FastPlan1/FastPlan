@@ -33,7 +33,7 @@ router.post("/register", async (req, res) => {
     }
 });
 
-// ✅ Connexion
+// ✅ Connexion (CORRECTION ICI 🛠️)
 router.post("/login", async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -56,14 +56,19 @@ router.post("/login", async (req, res) => {
             return res.status(401).json({ message: "❌ Mot de passe incorrect." });
         }
 
-        const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "7d" });
+        // 🛠️ AJOUT DU ROLE ICI POUR JWT !
+        const token = jwt.sign(
+            { id: user._id, role: user.role },
+            process.env.JWT_SECRET,
+            { expiresIn: "7d" }
+        );
 
         res.status(200).json({
             message: "✅ Connexion réussie",
             token,
             user: {
                 id: user._id,
-                name: user.name, // ✅ ici on envoie bien 'name'
+                name: user.name,
                 email: user.email,
                 role: user.role
             }

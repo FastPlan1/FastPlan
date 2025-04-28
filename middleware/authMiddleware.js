@@ -1,20 +1,24 @@
 const jwt = require("jsonwebtoken");
 
-/**
- * Vérifie la présence d'un JWT Bearer et le valide.
- * Ajoute req.user = { id, role, ... } issu du payload du token.
- */
 function authMiddleware(req, res, next) {
   const authHeader = req.header("Authorization") || "";
+  
+  console.log('🔑 Token reçu :', authHeader); // Ajoute ce log
+  
   if (!authHeader.startsWith("Bearer ")) {
+    console.log("⚠️ Token manquant ou mal formaté !");
     return res.status(401).json({ message: "Accès refusé. Token manquant." });
   }
+
   const token = authHeader.split(" ")[1];
+
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = payload; 
+    req.user = payload;
+    console.log("✅ Token valide, payload :", payload); // Log payload
     next();
   } catch (err) {
+    console.error("❌ Erreur vérification JWT :", err.message);
     return res.status(401).json({ message: "Token invalide." });
   }
 }
