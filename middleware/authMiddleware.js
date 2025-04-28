@@ -1,87 +1,59 @@
-// src/context/AuthContext.js
+const jwt = require("jsonwebtoken");
 
-import React, { createContext, useEffect, useState } from "react";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import axios from "axios";
-import { API_BASE_URL } from "../config";
+/**
+ * Vérifie la présence d'un JWT Bearer et le valide.
+ * Ajoute req.user = { id, role, ... } issu du payload du token.
+ */
+function authMiddleware(req, res, next) {
+  const authHeader = req.header("Authorization") || "";
+  if (!authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ message: "Accès refusé. Token manquant." });
+  }
+  const token = authHeader.split(" ")[1];
+  try {
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = payload; 
+    next();
+  } catch (err) {
+    return res.status(401).json({ message: "Token invalide." });
+  }
+}
 
-export const AuthContext = createContext();
+/**
+ * Autorise uniquement les patrons (role === 'patron')
+ */
+function isPatron(req, res, next) {
+  if (!req.user || req.user.role !== "patron") {
+    return res.status(403).json({ message: "Accès interdit : seul un patron." });
+  }
+  next();
+}
 
-export const AuthProvider = ({ children }) => {
-  const [user, setUser]               = useState(null);
-  const [token, setToken]             = useState(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [loading, setLoading]         = useState(true);
+/**
+ * Autorise uniquement les chauffeurs (role === 'chauffeur')
+ */
+function isChauffeur(req, res, next) {
+  if (!req.user || req.user.role !== "chauffeur") {
+    return res.status(403).json({ message: "Accès interdit : seul un chauffeur." });
+  }
+  next();
+}
 
-  // Au démarrage, on restaure user + token
-  useEffect(() => {
-    const loadCredentials = async () => {
-      try {
-        const json = await AsyncStorage.getItem("credentials");
-        if (json) {
-          const { user: storedUser, token: storedToken } = JSON.parse(json);
-          // on peuple axios
-          axios.defaults.headers.common["Authorization"] = `Bearer ${storedToken}`;
-          setUser(storedUser);
-          setToken(storedToken);
-          setIsAuthenticated(true);
-        }
-      } catch (e) {
-        console.error("❌ Erreur restauration credentials :", e);
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadCredentials();
-  }, []);
+/**
+ * Autorise les admins ET les patrons
+ */
+function isAdminOrPatron(req, res, next) {
+  if (!req.user || !["admin", "patron"].includes(req.user.role)) {
+    return res
+      .status(403)
+      .json({ message: "Accès interdit : admin ou patron seulement." });
+  }
+  next();
+}
 
-  // Fonction de login
-  const login = async (email, password) => {
-    try {
-      const res = await axios.post(`${API_BASE_URL}/auth/login`, { email, password });
-      // Supposons que ton backend renvoie { user, token }
-      const { user: userData, token: jwt } = res.data;
-
-      // On configure axios pour tous les appels suivants
-      axios.defaults.headers.common["Authorization"] = `Bearer ${jwt}`;
-      setToken(jwt);
-
-      // Formattage du user (ajout de id pour simplicité)
-      const formattedUser = {
-        ...userData,
-        id: userData._id,
-      };
-      setUser(formattedUser);
-      setIsAuthenticated(true);
-
-      // On stocke
-      await AsyncStorage.setItem(
-        "credentials",
-        JSON.stringify({ user: formattedUser, token: jwt })
-      );
-    } catch (err) {
-      console.error("❌ Erreur login :", err);
-      throw err.response?.data?.message || "Erreur serveur pendant la connexion.";
-    }
-  };
-
-  const logout = async () => {
-    try {
-      await AsyncStorage.removeItem("credentials");
-      delete axios.defaults.headers.common["Authorization"];
-      setUser(null);
-      setToken(null);
-      setIsAuthenticated(false);
-    } catch (err) {
-      console.error("❌ Erreur déconnexion :", err);
-    }
-  };
-
-  return (
-    <AuthContext.Provider
-      value={{ user, token, isAuthenticated, login, logout, loading }}
-    >
-      {children}
-    </AuthContext.Provider>
-  );
+module.exports = {
+  authMiddleware,
+  isPatron,
+  isChauffeur,
+  isAdminOrPatron,
 };
