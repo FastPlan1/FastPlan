@@ -1,39 +1,87 @@
-const jwt = require('jsonwebtoken');
+// src/context/AuthContext.js
 
-const authMiddleware = (req, res, next) => {
-    const token = req.header("Authorization");
-    if (!token) return res.status(401).json({ message: "Accès refusé. Aucun token fourni." });
+import React, { createContext, useEffect, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import axios from "axios";
+import { API_BASE_URL } from "../config";
 
+export const AuthContext = createContext();
+
+export const AuthProvider = ({ children }) => {
+  const [user, setUser]               = useState(null);
+  const [token, setToken]             = useState(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [loading, setLoading]         = useState(true);
+
+  // Au démarrage, on restaure user + token
+  useEffect(() => {
+    const loadCredentials = async () => {
+      try {
+        const json = await AsyncStorage.getItem("credentials");
+        if (json) {
+          const { user: storedUser, token: storedToken } = JSON.parse(json);
+          // on peuple axios
+          axios.defaults.headers.common["Authorization"] = `Bearer ${storedToken}`;
+          setUser(storedUser);
+          setToken(storedToken);
+          setIsAuthenticated(true);
+        }
+      } catch (e) {
+        console.error("❌ Erreur restauration credentials :", e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadCredentials();
+  }, []);
+
+  // Fonction de login
+  const login = async (email, password) => {
     try {
-        const tokenWithoutBearer = token.split(" ")[1];
-        console.log("🔎 Token reçu :", tokenWithoutBearer);
-        console.log("🔑 JWT_SECRET utilisé pour vérifier :", process.env.JWT_SECRET);
+      const res = await axios.post(`${API_BASE_URL}/auth/login`, { email, password });
+      // Supposons que ton backend renvoie { user, token }
+      const { user: userData, token: jwt } = res.data;
 
-        const verified = jwt.verify(tokenWithoutBearer, process.env.JWT_SECRET);
-        req.user = verified;
-        next();
+      // On configure axios pour tous les appels suivants
+      axios.defaults.headers.common["Authorization"] = `Bearer ${jwt}`;
+      setToken(jwt);
+
+      // Formattage du user (ajout de id pour simplicité)
+      const formattedUser = {
+        ...userData,
+        id: userData._id,
+      };
+      setUser(formattedUser);
+      setIsAuthenticated(true);
+
+      // On stocke
+      await AsyncStorage.setItem(
+        "credentials",
+        JSON.stringify({ user: formattedUser, token: jwt })
+      );
     } catch (err) {
-        console.error("❌ Erreur de validation du token :", err.message);
-        res.status(400).json({ message: "Token invalide." });
+      console.error("❌ Erreur login :", err);
+      throw err.response?.data?.message || "Erreur serveur pendant la connexion.";
     }
-};
+  };
 
-const isPatron = (req, res, next) => {
-    if (!req.user || req.user.role !== 'patron') {
-        return res.status(403).json({ message: "Accès interdit : seul un patron peut effectuer cette action." });
+  const logout = async () => {
+    try {
+      await AsyncStorage.removeItem("credentials");
+      delete axios.defaults.headers.common["Authorization"];
+      setUser(null);
+      setToken(null);
+      setIsAuthenticated(false);
+    } catch (err) {
+      console.error("❌ Erreur déconnexion :", err);
     }
-    next();
-};
+  };
 
-const isChauffeur = (req, res, next) => {
-    if (!req.user || req.user.role !== 'chauffeur') {
-        return res.status(403).json({ message: "Accès interdit : seul un chauffeur peut effectuer cette action." });
-    }
-    next();
-};
-
-module.exports = {
-  authMiddleware,
-  isPatron,
-  isChauffeur
+  return (
+    <AuthContext.Provider
+      value={{ user, token, isAuthenticated, login, logout, loading }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
 };

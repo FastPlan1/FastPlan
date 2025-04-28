@@ -2,102 +2,56 @@ import React, { createContext, useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import { API_BASE_URL } from "../config";
-import { v4 as uuidv4 } from "uuid";
 
 export const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser]               = useState(null);
+  const [isAuthenticated, setAuth]    = useState(false);
+  const [loading, setLoading]         = useState(true);
+
+  // Configure axios si on a un token en cache
+  const loadStored = async () => {
+    const token = await AsyncStorage.getItem("userToken");
+    if (token) {
+      axios.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+      setAuth(true);
+    }
+    const storedUser = await AsyncStorage.getItem("user");
+    if (storedUser) setUser(JSON.parse(storedUser));
+    setLoading(false);
+  };
 
   useEffect(() => {
-    const loadUser = async () => {
-      try {
-        const storedUser = await AsyncStorage.getItem("user");
-        if (storedUser) {
-          const parsed = JSON.parse(storedUser);
-          if (!parsed.id && parsed._id) parsed.id = parsed._id;
-  
-          // 🔧 Corrige le cas où entrepriseId est manquant
-          if (!parsed.entrepriseId && parsed.role === "patron") {
-            try {
-              const entrepriseRes = await axios.get(`${API_BASE_URL}/entreprise/by-user/${parsed._id}`);
-              parsed.entrepriseId = entrepriseRes.data.entrepriseId;
-  
-              // 🔄 Mets à jour l’utilisateur côté backend et localStorage
-              await axios.patch(`${API_BASE_URL}/auth/users/${parsed._id}`, {
-                entrepriseId: parsed.entrepriseId,
-              });
-  
-              await AsyncStorage.setItem("user", JSON.stringify(parsed));
-            } catch (e) {
-              console.warn("⚠️ Impossible de compléter entrepriseId depuis le cache :", e.message);
-              parsed.entrepriseId = `temp-${uuidv4()}`;
-            }
-          }
-  
-          setUser(parsed);
-          setIsAuthenticated(true);
-        }
-      } catch (error) {
-        console.error("❌ Erreur chargement utilisateur :", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-  
-    loadUser();
+    loadStored();
   }, []);
-  
 
   const login = async (email, password) => {
     try {
       const res = await axios.post(`${API_BASE_URL}/auth/login`, { email, password });
-      const userData = res.data.user;
+      const { token, user: userData } = res.data;
 
-      let entrepriseId = userData.entrepriseId;
+      // on configure Axios et on stocke
+      axios.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+      await AsyncStorage.setItem("userToken", token);
 
-      // ✅ Utilisation d'un UUID comme identifiant temporaire
-      if (!entrepriseId && userData.role === "patron") {
-        try {
-          const entrepriseRes = await axios.get(`${API_BASE_URL}/entreprise/by-user/${userData._id}`);
-          entrepriseId = entrepriseRes.data.entrepriseId;
-      
-          // Met à jour le backend (juste au cas où)
-          await axios.patch(`${API_BASE_URL}/auth/users/${userData._id}`, {
-            entrepriseId,
-          });
-        } catch (e) {
-          console.warn("⚠️ Impossible de récupérer ou mettre à jour l'entreprise :", e.message);
-          entrepriseId = `temp-${uuidv4()}`; // fallback si la requête échoue
-        }
-      }
-      
+      const formatted = { ...userData, id: userData._id };
+      await AsyncStorage.setItem("user", JSON.stringify(formatted));
 
-      const formattedUser = {
-        ...userData,
-        id: userData._id,
-        entrepriseId,
-      };
-
-      await AsyncStorage.setItem("user", JSON.stringify(formattedUser));
-      setUser(formattedUser);
-      setIsAuthenticated(true);
-    } catch (error) {
-      console.error("❌ Erreur login :", error);
-      throw error.response?.data?.message || "❌ Erreur serveur pendant la connexion.";
+      setUser(formatted);
+      setAuth(true);
+    } catch (err) {
+      console.error("❌ Erreur login :", err);
+      throw err.response?.data?.message || "Erreur serveur pendant la connexion.";
     }
   };
 
   const logout = async () => {
-    try {
-      await AsyncStorage.removeItem("user");
-      setUser(null);
-      setIsAuthenticated(false);
-    } catch (error) {
-      console.error("❌ Erreur déconnexion :", error);
-    }
+    delete axios.defaults.headers.common["Authorization"];
+    await AsyncStorage.removeItem("userToken");
+    await AsyncStorage.removeItem("user");
+    setUser(null);
+    setAuth(false);
   };
 
   return (
