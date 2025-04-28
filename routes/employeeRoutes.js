@@ -15,32 +15,31 @@ const {
 
 console.log("📡 Routes de employeeRoutes.js chargées !");
 
-// Applique le JWT à toutes les routes de ce router
+// 1) On protège **toutes** les routes de ce router par JWT
 router.use(authMiddleware);
 
 /**
- * Récupérer les employés d’un patron
  * GET /api/employees/by-patron/:id
+ * Récupère la liste des employés pour un patron donné
  */
 router.get(
   "/by-patron/:id",
   isAdminOrPatron,
   async (req, res) => {
     try {
-      const patronId = req.params.id;
-      const employees = await User.find({ entrepriseId: patronId })
+      const patronsEmployees = await User.find({ entrepriseId: req.params.id })
         .select("name email role");
-      res.json(employees);
+      res.json(patronsEmployees);
     } catch (err) {
-      console.error("❌ Erreur récupération des employés :", err);
+      console.error("❌ Erreur récupération employés :", err);
       res.status(500).json({ message: "Erreur serveur" });
     }
   }
 );
 
 /**
- * Mettre à jour le rôle d’un employé (chauffeur ↔ admin ↔ patron)
  * PUT /api/employees/:id
+ * Met à jour le rôle d’un employé
  */
 router.put(
   "/:id",
@@ -51,23 +50,21 @@ router.put(
       return res.status(400).json({ message: "Rôle invalide." });
     }
     try {
-      const user = await User.findById(req.params.id);
-      if (!user) {
-        return res.status(404).json({ message: "Utilisateur non trouvé." });
-      }
-      user.role = role;
-      await user.save();
-      res.json({ id: user._id, name: user.name, role: user.role });
+      const u = await User.findById(req.params.id);
+      if (!u) return res.status(404).json({ message: "Utilisateur non trouvé." });
+      u.role = role;
+      await u.save();
+      res.json({ id: u._id, name: u.name, role: u.role });
     } catch (err) {
       console.error("❌ Erreur mise à jour rôle :", err);
-      res.status(500).json({ message: "Erreur serveur lors de la mise à jour du rôle." });
+      res.status(500).json({ message: "Erreur serveur" });
     }
   }
 );
 
 /**
- * Récupérer les codes d’invitation d’un patron
  * GET /api/employees/codes/by-patron/:id
+ * Liste les codes d’invitation d’un patron
  */
 router.get(
   "/codes/by-patron/:id",
@@ -78,36 +75,34 @@ router.get(
         .sort({ createdAt: -1 });
       res.json(codes);
     } catch (err) {
-      console.error("❌ Erreur récupération des codes :", err);
+      console.error("❌ Erreur récupération codes :", err);
       res.status(500).json({ message: "Erreur serveur" });
     }
   }
 );
 
 /**
- * Supprimer un code d’invitation
  * DELETE /api/employees/delete-code/:id
+ * Supprime un code d’invitation
  */
 router.delete(
   "/delete-code/:id",
   isAdminOrPatron,
   async (req, res) => {
     try {
-      const deleted = await EmployeeCode.findByIdAndDelete(req.params.id);
-      if (!deleted) {
-        return res.status(404).json({ message: "Code non trouvé." });
-      }
-      res.json({ message: "Code supprimé avec succès." });
+      const del = await EmployeeCode.findByIdAndDelete(req.params.id);
+      if (!del) return res.status(404).json({ message: "Code non trouvé." });
+      res.json({ message: "Code supprimé." });
     } catch (err) {
-      console.error("❌ Erreur suppression code :", err);
-      res.status(500).json({ message: "Erreur serveur lors de la suppression." });
+      console.error("❌ Erreur suppr. code :", err);
+      res.status(500).json({ message: "Erreur serveur" });
     }
   }
 );
 
 /**
- * Générer un code d’invitation
  * POST /api/employees/generate-code
+ * Génère un nouveau code d’invitation pour un patron
  */
 router.post(
   "/generate-code",
@@ -124,14 +119,14 @@ router.post(
       res.status(201).json({ code });
     } catch (err) {
       console.error("❌ Erreur génération code :", err);
-      res.status(500).json({ message: "Erreur serveur lors de la génération." });
+      res.status(500).json({ message: "Erreur serveur" });
     }
   }
 );
 
 /**
- * Vérifier un code d’invitation
  * POST /api/employees/verify-code
+ * Vérifie qu’un code soit encore valide
  */
 router.post(
   "/verify-code",
@@ -140,44 +135,44 @@ router.post(
     try {
       const found = await EmployeeCode.findOne({ code: req.body.code, used: false });
       if (!found) {
-        return res.status(400).json({ valid: false, message: "Code invalide ou déjà utilisé." });
+        return res.status(400).json({ valid: false, message: "Code invalide ou utilisé." });
       }
       res.json({ valid: true, patronId: found.patron });
     } catch (err) {
-      console.error("❌ Erreur vérification code :", err);
-      res.status(500).json({ message: "Erreur serveur lors de la vérification." });
+      console.error("❌ Erreur vérif. code :", err);
+      res.status(500).json({ message: "Erreur serveur" });
     }
   }
 );
 
 /**
- * Marquer un code comme utilisé
  * PUT /api/employees/use-code
+ * Marque un code comme utilisé
  */
 router.put(
   "/use-code",
   isAdminOrPatron,
   async (req, res) => {
     try {
-      const updated = await EmployeeCode.findOneAndUpdate(
+      const upd = await EmployeeCode.findOneAndUpdate(
         { code: req.body.code, used: false },
         { used: true },
         { new: true }
       );
-      if (!updated) {
-        return res.status(400).json({ message: "Code déjà utilisé ou inexistant." });
+      if (!upd) {
+        return res.status(400).json({ message: "Code inexistant ou déjà utilisé." });
       }
-      res.json({ message: "Code marqué comme utilisé." });
+      res.json({ message: "Code utilisé." });
     } catch (err) {
-      console.error("❌ Erreur utilisation code :", err);
-      res.status(500).json({ message: "Erreur serveur lors de l'utilisation." });
+      console.error("❌ Erreur use-code :", err);
+      res.status(500).json({ message: "Erreur serveur" });
     }
   }
 );
 
 /**
- * Récupérer tous les chauffeurs (+ patron si non listé)
  * GET /api/employees/chauffeurs
+ * Récupère tous les chauffeurs (et ajoute le patron s’il n’est pas dedans)
  */
 router.get(
   "/chauffeurs",
@@ -198,8 +193,8 @@ router.get(
 );
 
 /**
- * Récupérer les positions GPS
  * GET /api/employees/locations
+ * Récupère toutes les positions GPS
  */
 router.get(
   "/locations",
@@ -221,14 +216,14 @@ router.get(
       res.json(locations);
     } catch (err) {
       console.error("❌ Erreur récupération positions :", err);
-      res.status(500).json({ message: "Impossible de récupérer les positions" });
+      res.status(500).json({ message: "Erreur serveur" });
     }
   }
 );
 
 /**
- * Permettre au chauffeur de poster sa position
  * POST /api/employees/location
+ * Le chauffeur envoie sa position
  */
 router.post(
   "/location",
@@ -237,22 +232,20 @@ router.post(
     try {
       const { latitude, longitude } = req.body;
       if (typeof latitude !== "number" || typeof longitude !== "number") {
-        return res
-          .status(400)
-          .json({ message: "latitude et longitude numériques requis." });
+        return res.status(400).json({ message: "latitude et longitude numériques requis." });
       }
-      const user = await User.findById(req.user.id);
-      if (!user) {
+      const u = await User.findById(req.user.id);
+      if (!u) {
         return res.status(404).json({ message: "Chauffeur non trouvé." });
       }
-      user.latitude  = latitude;
-      user.longitude = longitude;
-      user.updatedAt = new Date();
-      await user.save();
+      u.latitude  = latitude;
+      u.longitude = longitude;
+      u.updatedAt = new Date();
+      await u.save();
       res.json({ message: "Position mise à jour." });
     } catch (err) {
       console.error("❌ Erreur mise à jour position :", err);
-      res.status(500).json({ message: "Erreur serveur." });
+      res.status(500).json({ message: "Erreur serveur" });
     }
   }
 );
