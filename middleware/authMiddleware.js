@@ -22,6 +22,7 @@ function authMiddleware(req, res, next) {
     return res.status(401).json({ message: "Token invalide." });
   }
 }
+console.log("🚨 Payload JWT reçu :", req.user);
 
 /**
  * Autorise uniquement les patrons (role === 'patron')
