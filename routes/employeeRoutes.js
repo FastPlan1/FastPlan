@@ -1,4 +1,4 @@
-// routes/employeeRoutes.js
+// src/routes/employeeRoutes.js
 
 const express = require("express");
 const router  = express.Router();
@@ -15,21 +15,21 @@ const {
 
 console.log("📡 Routes de employeeRoutes.js chargées !");
 
-// 1) On protège **toutes** les routes de ce router par JWT
+// 1) Protéger toutes les routes de ce router
 router.use(authMiddleware);
 
 /**
  * GET /api/employees/by-patron/:id
- * Récupère la liste des employés pour un patron donné
+ * Récupère la liste des employés d’un patron
  */
 router.get(
   "/by-patron/:id",
   isAdminOrPatron,
   async (req, res) => {
     try {
-      const patronsEmployees = await User.find({ entrepriseId: req.params.id })
+      const employees = await User.find({ entrepriseId: req.params.id })
         .select("name email role");
-      res.json(patronsEmployees);
+      res.json(employees);
     } catch (err) {
       console.error("❌ Erreur récupération employés :", err);
       res.status(500).json({ message: "Erreur serveur" });
@@ -39,7 +39,7 @@ router.get(
 
 /**
  * PUT /api/employees/:id
- * Met à jour le rôle d’un employé
+ * Met à jour le rôle d’un utilisateur
  */
 router.put(
   "/:id",
@@ -50,11 +50,13 @@ router.put(
       return res.status(400).json({ message: "Rôle invalide." });
     }
     try {
-      const u = await User.findById(req.params.id);
-      if (!u) return res.status(404).json({ message: "Utilisateur non trouvé." });
-      u.role = role;
-      await u.save();
-      res.json({ id: u._id, name: u.name, role: u.role });
+      const user = await User.findById(req.params.id);
+      if (!user) {
+        return res.status(404).json({ message: "Utilisateur non trouvé." });
+      }
+      user.role = role;
+      await user.save();
+      res.json({ id: user._id, name: user.name, role: user.role });
     } catch (err) {
       console.error("❌ Erreur mise à jour rôle :", err);
       res.status(500).json({ message: "Erreur serveur" });
@@ -90,11 +92,13 @@ router.delete(
   isAdminOrPatron,
   async (req, res) => {
     try {
-      const del = await EmployeeCode.findByIdAndDelete(req.params.id);
-      if (!del) return res.status(404).json({ message: "Code non trouvé." });
-      res.json({ message: "Code supprimé." });
+      const deleted = await EmployeeCode.findByIdAndDelete(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ message: "Code non trouvé." });
+      }
+      res.json({ message: "Code supprimé avec succès." });
     } catch (err) {
-      console.error("❌ Erreur suppr. code :", err);
+      console.error("❌ Erreur suppression code :", err);
       res.status(500).json({ message: "Erreur serveur" });
     }
   }
@@ -102,7 +106,7 @@ router.delete(
 
 /**
  * POST /api/employees/generate-code
- * Génère un nouveau code d’invitation pour un patron
+ * Génère un code d’invitation pour un patron
  */
 router.post(
   "/generate-code",
@@ -113,6 +117,7 @@ router.post(
       return res.status(400).json({ message: "ID du patron requis." });
     }
     try {
+      // On purge les anciens codes
       await EmployeeCode.deleteMany({ patron: patronId });
       const code = uuidv4().slice(0, 6).toUpperCase();
       await new EmployeeCode({ code, used: false, patron: patronId }).save();
@@ -126,7 +131,7 @@ router.post(
 
 /**
  * POST /api/employees/verify-code
- * Vérifie qu’un code soit encore valide
+ * Vérifie qu’un code soit valide et non utilisé
  */
 router.post(
   "/verify-code",
@@ -135,11 +140,11 @@ router.post(
     try {
       const found = await EmployeeCode.findOne({ code: req.body.code, used: false });
       if (!found) {
-        return res.status(400).json({ valid: false, message: "Code invalide ou utilisé." });
+        return res.status(400).json({ valid: false, message: "Code invalide ou déjà utilisé." });
       }
       res.json({ valid: true, patronId: found.patron });
     } catch (err) {
-      console.error("❌ Erreur vérif. code :", err);
+      console.error("❌ Erreur vérification code :", err);
       res.status(500).json({ message: "Erreur serveur" });
     }
   }
@@ -154,15 +159,15 @@ router.put(
   isAdminOrPatron,
   async (req, res) => {
     try {
-      const upd = await EmployeeCode.findOneAndUpdate(
+      const updated = await EmployeeCode.findOneAndUpdate(
         { code: req.body.code, used: false },
         { used: true },
         { new: true }
       );
-      if (!upd) {
+      if (!updated) {
         return res.status(400).json({ message: "Code inexistant ou déjà utilisé." });
       }
-      res.json({ message: "Code utilisé." });
+      res.json({ message: "Code marqué comme utilisé." });
     } catch (err) {
       console.error("❌ Erreur use-code :", err);
       res.status(500).json({ message: "Erreur serveur" });
@@ -172,7 +177,7 @@ router.put(
 
 /**
  * GET /api/employees/chauffeurs
- * Récupère tous les chauffeurs (et ajoute le patron s’il n’est pas dedans)
+ * Renvoie tous les chauffeurs (et ajoute le patron s’il n’est pas listé)
  */
 router.get(
   "/chauffeurs",
@@ -181,7 +186,7 @@ router.get(
       const chauffeurs = await User.find({ role: "chauffeur" }).select("name");
       const patron     = await User.findOne({ role: "patron" }).select("name");
       const list       = chauffeurs.map(c => ({ nom: c.name }));
-      if (patron && !list.find(c => c.nom === patron.name)) {
+      if (patron && !list.find(x => x.nom === patron.name)) {
         list.push({ nom: patron.name });
       }
       res.json(list);
@@ -194,7 +199,7 @@ router.get(
 
 /**
  * GET /api/employees/locations
- * Récupère toutes les positions GPS
+ * Récupère positions GPS de tous les chauffeurs et patrons
  */
 router.get(
   "/locations",
@@ -223,7 +228,7 @@ router.get(
 
 /**
  * POST /api/employees/location
- * Le chauffeur envoie sa position
+ * Permet au chauffeur d’envoyer sa position
  */
 router.post(
   "/location",
@@ -234,14 +239,14 @@ router.post(
       if (typeof latitude !== "number" || typeof longitude !== "number") {
         return res.status(400).json({ message: "latitude et longitude numériques requis." });
       }
-      const u = await User.findById(req.user.id);
-      if (!u) {
+      const user = await User.findById(req.user.id);
+      if (!user) {
         return res.status(404).json({ message: "Chauffeur non trouvé." });
       }
-      u.latitude  = latitude;
-      u.longitude = longitude;
-      u.updatedAt = new Date();
-      await u.save();
+      user.latitude  = latitude;
+      user.longitude = longitude;
+      user.updatedAt = new Date();
+      await user.save();
       res.json({ message: "Position mise à jour." });
     } catch (err) {
       console.error("❌ Erreur mise à jour position :", err);
@@ -250,4 +255,5 @@ router.post(
   }
 );
 
+// Exporte le router
 module.exports = router;
