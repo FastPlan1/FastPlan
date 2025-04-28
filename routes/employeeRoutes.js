@@ -1,7 +1,6 @@
-// src/routes/employeeRoutes.js
 
-const express = require("express");
-const router  = express.Router();
+const express        = require("express");
+const router         = express.Router();
 const { v4: uuidv4 } = require("uuid");
 
 const EmployeeCode = require("../models/codeInvitation");
@@ -15,12 +14,11 @@ const {
 
 console.log("📡 Routes de employeeRoutes.js chargées !");
 
-// 1) Protéger toutes les routes de ce router
+// On applique le JWT à toutes les routes
 router.use(authMiddleware);
 
 /**
  * GET /api/employees/by-patron/:id
- * Récupère la liste des employés d’un patron
  */
 router.get(
   "/by-patron/:id",
@@ -39,14 +37,13 @@ router.get(
 
 /**
  * PUT /api/employees/:id
- * Met à jour le rôle d’un utilisateur
  */
 router.put(
   "/:id",
   isAdminOrPatron,
   async (req, res) => {
     const { role } = req.body;
-    if (!["chauffeur", "admin", "patron"].includes(role)) {
+    if (!["chauffeur","admin","patron"].includes(role)) {
       return res.status(400).json({ message: "Rôle invalide." });
     }
     try {
@@ -66,7 +63,6 @@ router.put(
 
 /**
  * GET /api/employees/codes/by-patron/:id
- * Liste les codes d’invitation d’un patron
  */
 router.get(
   "/codes/by-patron/:id",
@@ -85,7 +81,6 @@ router.get(
 
 /**
  * DELETE /api/employees/delete-code/:id
- * Supprime un code d’invitation
  */
 router.delete(
   "/delete-code/:id",
@@ -96,7 +91,7 @@ router.delete(
       if (!deleted) {
         return res.status(404).json({ message: "Code non trouvé." });
       }
-      res.json({ message: "Code supprimé avec succès." });
+      res.json({ message: "Code supprimé." });
     } catch (err) {
       console.error("❌ Erreur suppression code :", err);
       res.status(500).json({ message: "Erreur serveur" });
@@ -106,7 +101,6 @@ router.delete(
 
 /**
  * POST /api/employees/generate-code
- * Génère un code d’invitation pour un patron
  */
 router.post(
   "/generate-code",
@@ -117,9 +111,8 @@ router.post(
       return res.status(400).json({ message: "ID du patron requis." });
     }
     try {
-      // On purge les anciens codes
       await EmployeeCode.deleteMany({ patron: patronId });
-      const code = uuidv4().slice(0, 6).toUpperCase();
+      const code = uuidv4().slice(0,6).toUpperCase();
       await new EmployeeCode({ code, used: false, patron: patronId }).save();
       res.status(201).json({ code });
     } catch (err) {
@@ -131,7 +124,6 @@ router.post(
 
 /**
  * POST /api/employees/verify-code
- * Vérifie qu’un code soit valide et non utilisé
  */
 router.post(
   "/verify-code",
@@ -152,7 +144,6 @@ router.post(
 
 /**
  * PUT /api/employees/use-code
- * Marque un code comme utilisé
  */
 router.put(
   "/use-code",
@@ -165,7 +156,7 @@ router.put(
         { new: true }
       );
       if (!updated) {
-        return res.status(400).json({ message: "Code inexistant ou déjà utilisé." });
+        return res.status(400).json({ message: "Code déjà utilisé ou inexistant." });
       }
       res.json({ message: "Code marqué comme utilisé." });
     } catch (err) {
@@ -177,15 +168,14 @@ router.put(
 
 /**
  * GET /api/employees/chauffeurs
- * Renvoie tous les chauffeurs (et ajoute le patron s’il n’est pas listé)
  */
 router.get(
   "/chauffeurs",
   async (req, res) => {
     try {
-      const chauffeurs = await User.find({ role: "chauffeur" }).select("name");
-      const patron     = await User.findOne({ role: "patron" }).select("name");
-      const list       = chauffeurs.map(c => ({ nom: c.name }));
+      const list = (await User.find({ role: "chauffeur" }).select("name"))
+        .map(c => ({ nom: c.name }));
+      const patron = await User.findOne({ role: "patron" }).select("name");
       if (patron && !list.find(x => x.nom === patron.name)) {
         list.push({ nom: patron.name });
       }
@@ -199,25 +189,23 @@ router.get(
 
 /**
  * GET /api/employees/locations
- * Récupère positions GPS de tous les chauffeurs et patrons
  */
 router.get(
   "/locations",
   async (req, res) => {
     try {
-      const users = await User.find(
-        { role: { $in: ["chauffeur", "patron"] } },
+      const locations = (await User.find(
+        { role: { $in: ["chauffeur","patron"] } },
         "name latitude longitude updatedAt"
-      );
-      const locations = users
-        .filter(u => u.latitude != null && u.longitude != null)
-        .map(u => ({
-          id:        u._id,
-          name:      u.name,
-          latitude:  u.latitude,
-          longitude: u.longitude,
-          updatedAt: u.updatedAt,
-        }));
+      ))
+      .filter(u => u.latitude != null && u.longitude != null)
+      .map(u => ({
+        id: u._id,
+        name: u.name,
+        latitude: u.latitude,
+        longitude: u.longitude,
+        updatedAt: u.updatedAt,
+      }));
       res.json(locations);
     } catch (err) {
       console.error("❌ Erreur récupération positions :", err);
@@ -228,7 +216,6 @@ router.get(
 
 /**
  * POST /api/employees/location
- * Permet au chauffeur d’envoyer sa position
  */
 router.post(
   "/location",
@@ -255,5 +242,4 @@ router.post(
   }
 );
 
-// Exporte le router
 module.exports = router;
