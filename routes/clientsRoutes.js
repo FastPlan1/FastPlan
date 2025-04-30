@@ -7,7 +7,7 @@ const ExcelJS = require('exceljs');
 const { v4: uuidv4 } = require('uuid');
 
 const Client = require('../models/Client');
-const { authenticateToken, authorizeRoles, checkCompanyAccess } = require('../middleware/auth');
+const { authMiddleware, isAdminOrPatron, isChauffeur } = require('../middleware/authMiddleware');
 
 // ✅ Constantes et configuration
 const UPLOADS_DIR = path.join(__dirname, '../uploads/clients');
@@ -64,6 +64,27 @@ const upload = multer({
   }
 });
 
+// Middleware pour vérifier l'accès à l'entreprise
+const checkCompanyAccess = (req, res, next) => {
+  const entrepriseId = req.params.entrepriseId || req.body.entrepriseId;
+  
+  if (!entrepriseId) {
+    return res.status(400).json({
+      success: false,
+      message: "ID d'entreprise requis"
+    });
+  }
+  
+  if (entrepriseId !== req.user.entrepriseId) {
+    return res.status(403).json({
+      success: false,
+      message: "Vous n'êtes pas autorisé à accéder aux données d'une autre entreprise"
+    });
+  }
+  
+  next();
+};
+
 /**
  * @route POST /api/clients/add
  * @desc Ajouter un client
@@ -71,8 +92,8 @@ const upload = multer({
  */
 router.post(
   '/add',
-  authenticateToken,
-  authorizeRoles(['patron']),
+  authMiddleware,
+  isAdminOrPatron,
   checkCompanyAccess,
   upload.fields([
     { name: 'carteVitale', maxCount: 1 },
@@ -202,9 +223,8 @@ router.post(
  */
 router.put(
   '/:id',
-  authenticateToken,
-  authorizeRoles(['patron']),
-  checkCompanyAccess,
+  authMiddleware,
+  isAdminOrPatron,
   upload.fields([
     { name: 'carteVitale', maxCount: 1 },
     { name: 'bonsTransport', maxCount: 5 },
@@ -349,13 +369,20 @@ router.put(
  */
 router.get(
   '/:entrepriseId',
-  authenticateToken,
-  authorizeRoles(['patron', 'chauffeur']),
+  authMiddleware,
   checkCompanyAccess,
   async (req, res) => {
     try {
       const { entrepriseId } = req.params;
       const { search, sort, limit = 100, page = 1, fields } = req.query;
+      
+      // Vérifier les droits d'accès
+      if (!['patron', 'admin', 'chauffeur'].includes(req.user.role)) {
+        return res.status(403).json({
+          success: false,
+          message: "Vous n'êtes pas autorisé à accéder à cette ressource"
+        });
+      }
       
       // Vérifier que l'entrepriseId correspond à celui de l'utilisateur
       if (entrepriseId !== req.user.entrepriseId) {
@@ -435,11 +462,18 @@ router.get(
  */
 router.get(
   '/detail/:id',
-  authenticateToken,
-  authorizeRoles(['patron', 'chauffeur']),
+  authMiddleware,
   async (req, res) => {
     try {
       const clientId = req.params.id;
+      
+      // Vérifier les droits d'accès
+      if (!['patron', 'admin', 'chauffeur'].includes(req.user.role)) {
+        return res.status(403).json({
+          success: false,
+          message: "Vous n'êtes pas autorisé à accéder à cette ressource"
+        });
+      }
       
       const client = await Client.findById(clientId);
       
@@ -479,8 +513,8 @@ router.get(
  */
 router.delete(
   '/:id',
-  authenticateToken,
-  authorizeRoles(['patron']),
+  authMiddleware,
+  isAdminOrPatron,
   async (req, res) => {
     try {
       const clientId = req.params.id;
@@ -541,8 +575,8 @@ router.delete(
  */
 router.get(
   '/export/:entrepriseId',
-  authenticateToken,
-  authorizeRoles(['patron']),
+  authMiddleware,
+  isAdminOrPatron,
   checkCompanyAccess,
   async (req, res) => {
     try {
@@ -643,12 +677,19 @@ router.get(
  */
 router.get(
   '/file/:type/:entrepriseId/:filename',
-  authenticateToken,
-  authorizeRoles(['patron', 'chauffeur']),
+  authMiddleware,
   checkCompanyAccess,
   async (req, res) => {
     try {
       const { type, entrepriseId, filename } = req.params;
+      
+      // Vérifier les droits d'accès
+      if (!['patron', 'admin', 'chauffeur'].includes(req.user.role)) {
+        return res.status(403).json({
+          success: false,
+          message: "Vous n'êtes pas autorisé à accéder à cette ressource"
+        });
+      }
       
       // Vérifier que l'entrepriseId correspond à celui de l'utilisateur
       if (entrepriseId !== req.user.entrepriseId) {
@@ -712,8 +753,8 @@ router.get(
  */
 router.delete(
   '/file/:id/:type/:index?',
-  authenticateToken,
-  authorizeRoles(['patron']),
+  authMiddleware,
+  isAdminOrPatron,
   async (req, res) => {
     try {
       const { id, type, index } = req.params;
