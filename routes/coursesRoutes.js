@@ -6,7 +6,7 @@ const fs = require("fs");
 const { v4: uuidv4 } = require("uuid");
 
 const Course = require("../models/Planning");
-const { authenticateToken, authorizeRoles, checkCompanyAccess } = require("../middleware/auth");
+const { authMiddleware, isAdminOrPatron, isChauffeur } = require("../middleware/authMiddleware");
 
 // Créer le répertoire d'upload s'il n'existe pas
 const uploadDir = path.join(__dirname, "../uploads/courses");
@@ -63,6 +63,37 @@ const upload = multer({
   }
 });
 
+// Middleware pour vérifier les rôles
+const checkRoles = (roles) => {
+  return (req, res, next) => {
+    if (!req.user || !roles.includes(req.user.role)) {
+      return res.status(403).json({ 
+        success: false,
+        message: "Accès interdit: vous n'avez pas les permissions nécessaires." 
+      });
+    }
+    next();
+  };
+};
+
+// Middleware pour vérifier l'accès à l'entreprise
+const checkCompanyAccess = (req, res, next) => {
+  const entrepriseId = req.params.entrepriseId || req.body.entrepriseId;
+  
+  if (!entrepriseId) {
+    return next(); // Pas d'entrepriseId à vérifier
+  }
+  
+  if (entrepriseId !== req.user.entrepriseId) {
+    return res.status(403).json({
+      success: false,
+      message: "Vous n'êtes pas autorisé à accéder aux données d'une autre entreprise"
+    });
+  }
+  
+  next();
+};
+
 /**
  * @route POST /api/planning/upload/:id
  * @desc Upload un fichier pour une course
@@ -70,8 +101,8 @@ const upload = multer({
  */
 router.post(
   "/upload/:id",
-  authenticateToken,
-  authorizeRoles(['patron', 'chauffeur']),
+  authMiddleware,
+  checkRoles(['patron', 'admin', 'chauffeur']),
   upload.single("file"),
   async (req, res) => {
     try {
@@ -178,8 +209,8 @@ router.post(
  */
 router.delete(
   "/file/:courseId/:fileIndex",
-  authenticateToken,
-  authorizeRoles(['patron', 'chauffeur']),
+  authMiddleware,
+  checkRoles(['patron', 'admin', 'chauffeur']),
   async (req, res) => {
     try {
       const { courseId, fileIndex } = req.params;
@@ -258,8 +289,8 @@ router.delete(
  */
 router.get(
   "/file/:courseId/:fileIndex",
-  authenticateToken,
-  authorizeRoles(['patron', 'chauffeur']),
+  authMiddleware,
+  checkRoles(['patron', 'admin', 'chauffeur']),
   async (req, res) => {
     try {
       const { courseId, fileIndex } = req.params;
@@ -355,8 +386,8 @@ router.get(
  */
 router.get(
   "/:id",
-  authenticateToken,
-  authorizeRoles(['patron', 'chauffeur']),
+  authMiddleware,
+  checkRoles(['patron', 'admin', 'chauffeur']),
   async (req, res) => {
     try {
       const courseId = req.params.id;
@@ -462,8 +493,8 @@ router.get(
  */
 router.put(
   "/finish/:id",
-  authenticateToken,
-  authorizeRoles(['patron', 'chauffeur']),
+  authMiddleware,
+  checkRoles(['patron', 'admin', 'chauffeur']),
   async (req, res) => {
     try {
       const courseId = req.params.id;
@@ -524,8 +555,8 @@ router.put(
  */
 router.put(
   "/price/:id",
-  authenticateToken,
-  authorizeRoles(['patron']),
+  authMiddleware,
+  isAdminOrPatron,
   async (req, res) => {
     try {
       const { prix } = req.body;
@@ -591,5 +622,7 @@ router.get("/test", (req, res) => {
     timestamp: new Date()
   });
 });
+
+console.log("📡 Routes de coursesRoutes.js chargées !");
 
 module.exports = router;
