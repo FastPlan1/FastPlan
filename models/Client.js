@@ -42,9 +42,17 @@ const clientSchema = new mongoose.Schema({
     default: [],
   },
   entrepriseId: {
-    type: mongoose.Schema.Types.ObjectId,
+    type: mongoose.Schema.Types.Mixed, // Accepte ObjectId ou string pour les IDs temporaires
     ref: 'Entreprise',
     required: true,
+    validate: {
+      validator: function(v) {
+        // Valide si c'est un ObjectId ou une chaîne avec préfixe "temp-"
+        return mongoose.Types.ObjectId.isValid(v) || 
+               (typeof v === 'string' && v.startsWith('temp-'));
+      },
+      message: "L'entrepriseId doit être un ObjectId valide ou une chaîne temporaire"
+    }
   },
 }, {
   timestamps: true,

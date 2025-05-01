@@ -45,7 +45,7 @@ router.post("/", async (req, res) => {
     res.status(201).json({ message: "✅ Réservation envoyée avec succès." });
   } catch (err) {
     console.error("❌ Erreur création réservation :", err);
-    res.status(500).json({ error: "Erreur serveur" });
+    res.status(500).json({ error: err.message || "Erreur serveur" });
   }
 });
 
@@ -53,11 +53,18 @@ router.post("/", async (req, res) => {
 router.get("/entreprise/:entrepriseId", async (req, res) => {
   try {
     const { entrepriseId } = req.params;
+    
+    // ✅ AJOUT: Vérification pour une valeur invalide
+    if (!entrepriseId || entrepriseId === 'undefined') {
+      return res.status(400).json({ error: "ID d'entreprise invalide" });
+    }
+    
+    // ✅ MODIFIÉ: Pas de cast implicite vers ObjectId
     const reservations = await Reservation.find({ entrepriseId }).sort({ createdAt: -1 });
     res.status(200).json(reservations);
   } catch (err) {
     console.error("❌ Erreur récupération réservations :", err);
-    res.status(500).json({ error: "Erreur serveur" });
+    res.status(500).json({ error: err.message || "Erreur serveur" });
   }
 });
 
@@ -74,6 +81,12 @@ router.put("/accepter/:id", async (req, res) => {
       return res.status(404).json({ error: "Réservation non trouvée." });
     }
 
+    // ✅ MODIFIÉ: Vérification de l'entrepriseId avant création du Planning
+    if (!reservation.entrepriseId) {
+      return res.status(400).json({ error: "Cette réservation n'a pas d'ID d'entreprise associé." });
+    }
+
+    // ✅ MODIFIÉ: Création du Planning avec l'entrepriseId de la réservation
     const newCourse = new Planning({
       nom: reservation.nom,
       prenom: reservation.prenom,
@@ -83,8 +96,10 @@ router.put("/accepter/:id", async (req, res) => {
       heure: reservation.heure,
       description: reservation.description,
       statut: "En attente",
-      chauffeur: "Patron", // ✅ Important pour affichage immédiat
-      color: "#1a73e8",     // ✅ Couleur par défaut pour l’agenda
+      chauffeur: "Patron",
+      color: "#1a73e8",
+      entrepriseId: reservation.entrepriseId, // ✅ Ajout crucial de l'entrepriseId
+      telephone: reservation.telephone || ""  // ✅ Ajout du téléphone s'il est disponible
     });
 
     await newCourse.save();
@@ -92,10 +107,11 @@ router.put("/accepter/:id", async (req, res) => {
     res.status(200).json({
       message: "✅ Réservation acceptée et ajoutée au planning.",
       reservation,
+      course: newCourse // ✅ AJOUT: Retourner la course créée pour information
     });
   } catch (err) {
     console.error("❌ Erreur acceptation réservation :", err);
-    res.status(500).json({ error: "Erreur serveur" });
+    res.status(500).json({ error: err.message || "Erreur serveur" });
   }
 });
 
@@ -115,7 +131,7 @@ router.put("/refuser/:id", async (req, res) => {
     res.status(200).json({ message: "❌ Réservation refusée.", reservation });
   } catch (err) {
     console.error("❌ Erreur refus réservation :", err);
-    res.status(500).json({ error: "Erreur serveur" });
+    res.status(500).json({ error: err.message || "Erreur serveur" });
   }
 });
 
@@ -130,20 +146,32 @@ router.delete("/:id", async (req, res) => {
     res.status(200).json({ message: "🗑️ Réservation supprimée." });
   } catch (err) {
     console.error("❌ Erreur suppression réservation :", err);
-    res.status(500).json({ error: "Erreur serveur" });
+    res.status(500).json({ error: err.message || "Erreur serveur" });
   }
 });
 
 // 📌 Générer lien unique pour les clients
 router.post("/generer-lien/:entrepriseId", async (req, res) => {
   try {
+    const { entrepriseId } = req.params;
+    
+    // ✅ AJOUT: Vérification pour une valeur invalide
+    if (!entrepriseId || entrepriseId === 'undefined') {
+      return res.status(400).json({ error: "ID d'entreprise invalide" });
+    }
+    
     const lienUnique = crypto.randomBytes(8).toString("hex");
 
+    // ✅ MODIFIÉ: Pas besoin de cast vers ObjectId pour un ID temp-*
     const entreprise = await Entreprise.findByIdAndUpdate(
-      req.params.entrepriseId,
+      entrepriseId,
       { lienReservation: lienUnique },
       { new: true }
     );
+    
+    if (!entreprise) {
+      return res.status(404).json({ error: "Entreprise non trouvée." });
+    }
 
     res.status(200).json({
       message: "🔗 Lien généré avec succès !",
@@ -151,15 +179,21 @@ router.post("/generer-lien/:entrepriseId", async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Erreur génération lien :", err);
-    res.status(500).json({ error: "Erreur serveur lors de la génération du lien." });
+    res.status(500).json({ error: err.message || "Erreur serveur lors de la génération du lien." });
   }
 });
 
 // 📌 Récupérer l'entreprise par lien unique
 router.get("/client/:lienReservation", async (req, res) => {
   try {
+    const { lienReservation } = req.params;
+    
+    if (!lienReservation) {
+      return res.status(400).json({ error: "Lien de réservation requis." });
+    }
+    
     const entreprise = await Entreprise.findOne({
-      lienReservation: req.params.lienReservation,
+      lienReservation: lienReservation,
     });
 
     if (!entreprise) {
@@ -172,7 +206,7 @@ router.get("/client/:lienReservation", async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Erreur récupération entreprise par lien :", err);
-    res.status(500).json({ error: "Erreur serveur" });
+    res.status(500).json({ error: err.message || "Erreur serveur" });
   }
 });
 
@@ -191,8 +225,21 @@ router.post("/client/:lienReservation", async (req, res) => {
   } = req.body;
 
   try {
+    const { lienReservation } = req.params;
+    
+    if (!lienReservation) {
+      return res.status(400).json({ error: "Lien de réservation requis." });
+    }
+    
+    // Validation des champs requis
+    if (!nom || !prenom || !email || !telephone || !depart || !arrive || !date || !heure) {
+      return res.status(400).json({
+        error: "⚠️ Tous les champs marqués d'un astérisque sont obligatoires."
+      });
+    }
+
     const entreprise = await Entreprise.findOne({
-      lienReservation: req.params.lienReservation,
+      lienReservation: lienReservation,
     });
 
     if (!entreprise) {
@@ -200,7 +247,7 @@ router.post("/client/:lienReservation", async (req, res) => {
     }
 
     const reservation = new Reservation({
-      entrepriseId: entreprise._id,
+      entrepriseId: entreprise._id, // ✅ Utilisation de l'ID de l'entreprise trouvée
       nom,
       prenom,
       email,
@@ -212,7 +259,6 @@ router.post("/client/:lienReservation", async (req, res) => {
       description,
       statut: "En attente",
     });
-
     await reservation.save();
     res.status(201).json({ message: "✅ Demande envoyée avec succès !" });
   } catch (err) {

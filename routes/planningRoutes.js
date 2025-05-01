@@ -91,8 +91,13 @@ router.post("/", async (req, res) => {
       chauffeur, entrepriseId, caisseSociale, color, telephone
     } = req.body;
 
+    // ✅ AJOUT: Vérification supplémentaire pour entrepriseId
+    if (!entrepriseId) {
+      return res.status(400).json({ error: "⚠️ L'ID de l'entreprise est obligatoire." });
+    }
+
     // Validation des champs requis
-    if (!nom || !prenom || !depart || !arrive || !heure || !date || !entrepriseId) {
+    if (!nom || !prenom || !depart || !arrive || !heure || !date) {
       return res.status(400).json({ error: "⚠️ Les champs marqués d'un astérisque sont obligatoires." });
     }
 
@@ -110,7 +115,7 @@ router.post("/", async (req, res) => {
 
     // Construction de l'objet course avec des valeurs par défaut sécurisées
     const newCourse = new Planning({
-      entrepriseId,
+      entrepriseId, // Pas de transformation en ObjectId
       nom: nom.trim(),
       prenom: prenom.trim(),
       depart: depart.trim(),
@@ -136,7 +141,7 @@ router.post("/", async (req, res) => {
     console.error("❌ Erreur ajout course :", err);
     res.status(500).json({ 
       success: false,
-      error: "Une erreur est survenue lors de l'ajout de la course." 
+      error: err.message || "Une erreur est survenue lors de l'ajout de la course." 
     });
   }
 });
@@ -167,8 +172,8 @@ router.get("/", async (req, res) => {
       });
     }
 
-    // Construction du filtre de base
-    const filter = { entrepriseId };
+    // ✅ MODIFIÉ: Construction du filtre sans cast implicite vers ObjectId
+    const filter = { entrepriseId }; // Pas de transformation en ObjectId
     
     // Ajout de filtres conditionnels
     if (statut) {
@@ -232,7 +237,7 @@ router.get("/", async (req, res) => {
     console.error("❌ Erreur récupération planning :", err);
     res.status(500).json({ 
       success: false,
-      error: "Une erreur est survenue lors de la récupération des courses." 
+      error: err.message || "Une erreur est survenue lors de la récupération des courses." 
     });
   }
 });
@@ -253,9 +258,9 @@ router.get("/chauffeur/:chauffeurNom", async (req, res) => {
       });
     }
 
-    // Construction du filtre
+    // ✅ MODIFIÉ: Construction du filtre sans cast implicite vers ObjectId
     const filter = {
-      entrepriseId,
+      entrepriseId, // Pas de transformation en ObjectId
       chauffeur: { $regex: new RegExp(`^${chauffeurNom}$`, "i") }
     };
     
@@ -300,7 +305,7 @@ router.get("/chauffeur/:chauffeurNom", async (req, res) => {
     console.error("❌ Erreur récupération planning chauffeur :", err);
     res.status(500).json({ 
       success: false,
-      error: "Une erreur est survenue lors de la récupération du planning." 
+      error: err.message || "Une erreur est survenue lors de la récupération du planning." 
     });
   }
 });
@@ -346,11 +351,11 @@ router.get("/stats", async (req, res) => {
     const dateDebutStr = dateDebut.toISOString().split('T')[0];
     const dateFinStr = maintenant.toISOString().split('T')[0];
     
-    // Statistiques des courses par statut
+    // ✅ MODIFIÉ: Pipeline d'agrégation sans cast implicite d'ObjectId
     const statsPipeline = [
       { 
         $match: { 
-          entrepriseId,
+          entrepriseId, // Pas de transformation en ObjectId
           date: { $gte: dateDebutStr, $lte: dateFinStr }
         }
       },
@@ -362,11 +367,11 @@ router.get("/stats", async (req, res) => {
       }
     ];
     
-    // Statistiques par chauffeur
+    // ✅ MODIFIÉ: Pipeline d'agrégation sans cast implicite d'ObjectId
     const chauffeursPipeline = [
       { 
         $match: { 
-          entrepriseId,
+          entrepriseId, // Pas de transformation en ObjectId
           date: { $gte: dateDebutStr, $lte: dateFinStr }
         }
       },
@@ -410,7 +415,7 @@ router.get("/stats", async (req, res) => {
     console.error("❌ Erreur récupération statistiques :", err);
     res.status(500).json({ 
       success: false,
-      error: "Une erreur est survenue lors de la récupération des statistiques." 
+      error: err.message || "Une erreur est survenue lors de la récupération des statistiques." 
     });
   }
 });
@@ -469,7 +474,7 @@ router.put("/send/:id", async (req, res) => {
     console.error("❌ Erreur envoi au chauffeur :", err);
     res.status(500).json({ 
       success: false,
-      error: "Une erreur est survenue lors de l'assignation de la course." 
+      error: err.message || "Une erreur est survenue lors de l'assignation de la course." 
     });
   }
 });
@@ -514,7 +519,7 @@ router.put("/color/:id", async (req, res) => {
     console.error("❌ Erreur mise à jour couleur :", err);
     res.status(500).json({ 
       success: false,
-      error: "Une erreur est survenue lors de la mise à jour de la couleur." 
+      error: err.message || "Une erreur est survenue lors de la mise à jour de la couleur." 
     });
   }
 });
@@ -603,7 +608,7 @@ router.put("/status/:id", async (req, res) => {
     console.error("❌ Erreur mise à jour statut :", err);
     res.status(500).json({ 
       success: false,
-      error: "Une erreur est survenue lors de la mise à jour du statut." 
+      error: err.message || "Une erreur est survenue lors de la mise à jour du statut." 
     });
   }
 });
@@ -656,7 +661,7 @@ router.put("/price/:id", async (req, res) => {
     console.error("❌ Erreur mise à jour prix :", err);
     res.status(500).json({ 
       success: false,
-      error: "Une erreur est survenue lors de la mise à jour du prix." 
+      error: err.message || "Une erreur est survenue lors de la mise à jour du prix." 
     });
   }
 });
@@ -695,7 +700,7 @@ router.delete("/:id", async (req, res) => {
     console.error("❌ Erreur suppression course :", err);
     res.status(500).json({ 
       success: false,
-      error: "Une erreur est survenue lors de la suppression de la course." 
+      error: err.message || "Une erreur est survenue lors de la suppression de la course." 
     });
   }
 });
@@ -763,7 +768,7 @@ router.post(
       console.error("❌ Erreur upload fichier :", err);
       res.status(500).json({ 
         success: false,
-        error: "Une erreur est survenue lors de l'upload du fichier." 
+        error: err.message || "Une erreur est survenue lors de l'upload du fichier." 
       });
     }
   }
@@ -824,7 +829,7 @@ router.delete("/file/:id/:fileIndex", async (req, res) => {
     console.error("❌ Erreur suppression fichier :", err);
     res.status(500).json({ 
       success: false,
-      error: "Une erreur est survenue lors de la suppression du fichier." 
+      error: err.message || "Une erreur est survenue lors de la suppression du fichier." 
     });
   }
 });
@@ -850,8 +855,8 @@ router.get("/export", async (req, res) => {
       });
     }
     
-    // Construction du filtre
-    const filter = { entrepriseId };
+    // ✅ MODIFIÉ: Construction du filtre sans cast implicite vers ObjectId
+    const filter = { entrepriseId }; // Pas de transformation en ObjectId
     
     if (statut) {
       filter.statut = statut;
@@ -988,7 +993,7 @@ router.get("/export", async (req, res) => {
     console.error("❌ Erreur export Excel :", err);
     res.status(500).json({ 
       success: false,
-      error: "Une erreur est survenue lors de l'export Excel." 
+      error: err.message || "Une erreur est survenue lors de l'export Excel." 
     });
   }
 });
@@ -1018,7 +1023,7 @@ router.get("/course/:id", async (req, res) => {
     console.error("❌ Erreur récupération course :", err);
     res.status(500).json({ 
       success: false,
-      error: "Une erreur est survenue lors de la récupération de la course." 
+      error: err.message || "Une erreur est survenue lors de la récupération de la course." 
     });
   }
 });
@@ -1041,7 +1046,7 @@ router.put("/accept/:id", async (req, res) => {
     // Construire l'objet de mise à jour
     const updateData = { 
       statut: "Acceptée", 
-      entrepriseId,
+      entrepriseId, // Pas de transformation en ObjectId
       updatedAt: new Date()
     };
     
@@ -1080,7 +1085,7 @@ router.put("/accept/:id", async (req, res) => {
     console.error("❌ Erreur acceptation course :", err);
     res.status(500).json({ 
       success: false,
-      error: "Une erreur est survenue lors de l'acceptation de la course." 
+      error: err.message || "Une erreur est survenue lors de l'acceptation de la course." 
     });
   }
 });
@@ -1103,7 +1108,7 @@ router.put("/refuse/:id", async (req, res) => {
     // Construire l'objet de mise à jour
     const updateData = { 
       statut: "Refusée", 
-      entrepriseId,
+      entrepriseId, // Pas de transformation en ObjectId
       updatedAt: new Date()
     };
     
@@ -1137,7 +1142,59 @@ router.put("/refuse/:id", async (req, res) => {
     console.error("❌ Erreur refus course :", err);
     res.status(500).json({ 
       success: false,
-      error: "Une erreur est survenue lors du refus de la course." 
+      error: err.message || "Une erreur est survenue lors du refus de la course." 
+    });
+  }
+});
+
+// ✅ AJOUT: Route pour récupérer les courses terminées (manquante selon les logs)
+router.get("/terminees", async (req, res) => {
+  try {
+    const { entrepriseId, page = 1, limit = 50 } = req.query;
+    
+    if (!entrepriseId) {
+      return res.status(400).json({ 
+        success: false,
+        error: "❌ entrepriseId requis" 
+      });
+    }
+
+    // Construction du filtre
+    const filter = { 
+      entrepriseId, // Pas de transformation en ObjectId
+      statut: "Terminée"
+    };
+    
+    // Calcul pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    // Exécution requête avec pagination
+    const [courses, total] = await Promise.all([
+      Planning.find(filter)
+        .sort({ updatedAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit)),
+      Planning.countDocuments(filter)
+    ]);
+    
+    // Métadonnées de pagination
+    const totalPages = Math.ceil(total / parseInt(limit));
+
+    res.status(200).json({
+      success: true,
+      courses,
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages
+      }
+    });
+  } catch (err) {
+    console.error("❌ Erreur récupération courses terminées :", err);
+    res.status(500).json({ 
+      success: false,
+      error: err.message || "Une erreur est survenue lors de la récupération des courses terminées." 
     });
   }
 });

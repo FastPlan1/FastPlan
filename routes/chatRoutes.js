@@ -7,7 +7,7 @@ const Conversation = require("../models/Conversation");
 const Message = require("../models/Message");
 const User = require("../models/User");
 
-// 📁 Configuration Multer pour l’upload de fichiers
+// 📁 Configuration Multer pour l'upload de fichiers
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     cb(null, "uploads/chat");
@@ -35,7 +35,7 @@ router.post("/create", async (req, res) => {
       return res.status(400).json({ message: "Créateur invalide ou entreprise non définie." });
     }
 
-    // 🧠 Ajoute automatiquement le créateur aux membres s’il n’y est pas
+    // 🧠 Ajoute automatiquement le créateur aux membres s'il n'y est pas
     const members = originalMembers.includes(createdBy)
       ? originalMembers
       : [...originalMembers, createdBy];
@@ -69,10 +69,15 @@ router.post("/create", async (req, res) => {
 });
 
 
-// ✅ Récupérer les conversations d’un utilisateur
+// ✅ Récupérer les conversations d'un utilisateur
 router.get("/user/:userId", async (req, res) => {
   try {
     const userId = req.params.userId;
+    
+    // ✅ AJOUT: Vérification pour éviter les erreurs avec 'undefined'
+    if (!userId || userId === 'undefined') {
+      return res.status(400).json({ message: "ID utilisateur invalide" });
+    }
 
     const conversations = await Conversation.find({ members: userId })
       .populate("members", "name email")
@@ -91,8 +96,17 @@ router.post("/send", upload.single("file"), async (req, res) => {
     const { conversationId, sender, text } = req.body;
     const file = req.file;
 
-    if (!conversationId || !sender || (!text && !file)) {
-      return res.status(400).json({ message: "conversationId, sender et (texte ou fichier) requis." });
+    // ✅ AJOUT: Vérification pour les valeurs invalides
+    if (!conversationId || conversationId === 'undefined') {
+      return res.status(400).json({ message: "ID de conversation invalide" });
+    }
+    
+    if (!sender || sender === 'undefined') {
+      return res.status(400).json({ message: "ID d'expéditeur invalide" });
+    }
+    
+    if (!text && !file) {
+      return res.status(400).json({ message: "Le message doit contenir du texte ou un fichier." });
     }
 
     const messageData = {
@@ -115,18 +129,23 @@ router.post("/send", upload.single("file"), async (req, res) => {
     res.status(201).json(message);
   } catch (err) {
     console.error("❌ Erreur envoi message :", err);
-    res.status(500).json({ message: "Erreur serveur lors de l’envoi du message." });
+    res.status(500).json({ message: "Erreur serveur lors de l'envoi du message." });
   }
 });
 
-// ✅ Récupérer et marquer comme lus les messages d’une conversation
+// ✅ Récupérer et marquer comme lus les messages d'une conversation
 router.get("/messages/:conversationId", async (req, res) => {
   try {
     const { conversationId } = req.params;
     const { userId } = req.query;
 
-    if (!userId) {
-      return res.status(400).json({ message: "Paramètre userId requis." });
+    // ✅ AJOUT: Vérifications pour les valeurs invalides
+    if (!conversationId || conversationId === 'undefined') {
+      return res.status(400).json({ message: "ID de conversation invalide" });
+    }
+    
+    if (!userId || userId === 'undefined') {
+      return res.status(400).json({ message: "Paramètre userId requis et doit être valide." });
     }
 
     await Message.updateMany(
@@ -149,6 +168,11 @@ router.get("/messages/:conversationId", async (req, res) => {
 router.delete("/conversations/:id", async (req, res) => {
   try {
     const convId = req.params.id;
+    
+    // ✅ AJOUT: Vérification pour les valeurs invalides
+    if (!convId || convId === 'undefined') {
+      return res.status(400).json({ message: "ID de conversation invalide" });
+    }
 
     await Message.deleteMany({ conversation: convId });
     await Conversation.findByIdAndDelete(convId);
@@ -163,6 +187,12 @@ router.delete("/conversations/:id", async (req, res) => {
 // ✅ Vérifier les messages non lus d'un utilisateur (route optimisée)
 router.get("/unread/:userId", async (req, res) => {
   const { userId } = req.params;
+  
+  // ✅ AJOUT: Vérification pour les valeurs invalides
+  if (!userId || userId === 'undefined') {
+    return res.status(400).json({ message: "ID utilisateur invalide" });
+  }
+  
   try {
     const unreadMessages = await Message.countDocuments({
       readBy: { $ne: userId },
