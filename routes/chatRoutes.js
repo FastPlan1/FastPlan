@@ -74,7 +74,7 @@ router.get("/user/:userId", async (req, res) => {
   try {
     const userId = req.params.userId;
     
-    // ✅ AJOUT: Vérification pour éviter les erreurs avec 'undefined'
+    // Vérifier si userId est valide
     if (!userId || userId === 'undefined') {
       return res.status(400).json({ message: "ID utilisateur invalide" });
     }
@@ -96,17 +96,8 @@ router.post("/send", upload.single("file"), async (req, res) => {
     const { conversationId, sender, text } = req.body;
     const file = req.file;
 
-    // ✅ AJOUT: Vérification pour les valeurs invalides
-    if (!conversationId || conversationId === 'undefined') {
-      return res.status(400).json({ message: "ID de conversation invalide" });
-    }
-    
-    if (!sender || sender === 'undefined') {
-      return res.status(400).json({ message: "ID d'expéditeur invalide" });
-    }
-    
-    if (!text && !file) {
-      return res.status(400).json({ message: "Le message doit contenir du texte ou un fichier." });
+    if (!conversationId || !sender || (!text && !file)) {
+      return res.status(400).json({ message: "conversationId, sender et (texte ou fichier) requis." });
     }
 
     const messageData = {
@@ -139,13 +130,8 @@ router.get("/messages/:conversationId", async (req, res) => {
     const { conversationId } = req.params;
     const { userId } = req.query;
 
-    // ✅ AJOUT: Vérifications pour les valeurs invalides
-    if (!conversationId || conversationId === 'undefined') {
-      return res.status(400).json({ message: "ID de conversation invalide" });
-    }
-    
-    if (!userId || userId === 'undefined') {
-      return res.status(400).json({ message: "Paramètre userId requis et doit être valide." });
+    if (!userId) {
+      return res.status(400).json({ message: "Paramètre userId requis." });
     }
 
     await Message.updateMany(
@@ -168,11 +154,6 @@ router.get("/messages/:conversationId", async (req, res) => {
 router.delete("/conversations/:id", async (req, res) => {
   try {
     const convId = req.params.id;
-    
-    // ✅ AJOUT: Vérification pour les valeurs invalides
-    if (!convId || convId === 'undefined') {
-      return res.status(400).json({ message: "ID de conversation invalide" });
-    }
 
     await Message.deleteMany({ conversation: convId });
     await Conversation.findByIdAndDelete(convId);
@@ -188,7 +169,7 @@ router.delete("/conversations/:id", async (req, res) => {
 router.get("/unread/:userId", async (req, res) => {
   const { userId } = req.params;
   
-  // ✅ AJOUT: Vérification pour les valeurs invalides
+  // Vérifier si userId est valide
   if (!userId || userId === 'undefined') {
     return res.status(400).json({ message: "ID utilisateur invalide" });
   }

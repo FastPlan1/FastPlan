@@ -1,3 +1,4 @@
+
 const express        = require("express");
 const router         = express.Router();
 const { v4: uuidv4 } = require("uuid");
@@ -167,38 +168,17 @@ router.put(
 
 /**
  * GET /api/employees/chauffeurs
- * Route corrigée pour filtrer par entreprise et gestion du token
  */
 router.get(
   "/chauffeurs",
   async (req, res) => {
     try {
-      // Récupérer l'entrepriseId depuis les paramètres de requête
-      const { entrepriseId } = req.query;
-      
-      // Construire la requête avec filtre d'entreprise si disponible
-      const query = { role: "chauffeur" };
-      if (entrepriseId) {
-        query.entrepriseId = entrepriseId;
-      }
-      
-      // Récupérer les chauffeurs
-      const list = (await User.find(query).select("name"))
+      const list = (await User.find({ role: "chauffeur" }).select("name"))
         .map(c => ({ nom: c.name }));
-      
-      // Récupérer le patron de l'entreprise concernée
-      const patronQuery = { role: "patron" };
-      if (entrepriseId) {
-        patronQuery.entrepriseId = entrepriseId;
-      }
-      
-      const patron = await User.findOne(patronQuery).select("name");
-      
-      // Ajouter le patron à la liste si nécessaire
+      const patron = await User.findOne({ role: "patron" }).select("name");
       if (patron && !list.find(x => x.nom === patron.name)) {
         list.push({ nom: patron.name });
       }
-      
       res.json(list);
     } catch (err) {
       console.error("❌ Erreur récupération chauffeurs :", err);
@@ -214,17 +194,8 @@ router.get(
   "/locations",
   async (req, res) => {
     try {
-      // Récupérer l'entrepriseId depuis les paramètres de requête
-      const { entrepriseId } = req.query;
-      
-      // Construire la requête avec filtre d'entreprise si disponible
-      const query = { role: { $in: ["chauffeur", "patron"] } };
-      if (entrepriseId) {
-        query.entrepriseId = entrepriseId;
-      }
-      
       const locations = (await User.find(
-        query,
+        { role: { $in: ["chauffeur","patron"] } },
         "name latitude longitude updatedAt"
       ))
       .filter(u => u.latitude != null && u.longitude != null)
@@ -235,7 +206,6 @@ router.get(
         longitude: u.longitude,
         updatedAt: u.updatedAt,
       }));
-      
       res.json(locations);
     } catch (err) {
       console.error("❌ Erreur récupération positions :", err);
