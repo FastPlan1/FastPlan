@@ -25,9 +25,12 @@ router.get(
   isAdminOrPatron,
   async (req, res) => {
     try {
-      const employees = await User.find({ entrepriseId: req.params.id })
-        .select("name email role");
+      const employees = await User.find({
+        entrepriseId: req.params.id,
+        role: { $in: ["chauffeur", "admin"] }, // exclut le patron
+      }).select("name email role");
       res.json(employees);
+      
     } catch (err) {
       console.error("❌ Erreur récupération employés :", err);
       res.status(500).json({ message: "Erreur serveur" });
