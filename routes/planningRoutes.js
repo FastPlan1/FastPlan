@@ -674,6 +674,121 @@ router.post("/upload/:id", upload.single("file"), async (req, res) => {
   }
 });
 
+// ✅ RÉCUPÉRER LES COURSES TERMINÉES AVEC PAGINATION
+router.get("/terminees", async (req, res) => {
+  try {
+    const { entrepriseId, page = 1, limit = 50, dateStart, dateEnd } = req.query;
+    
+    if (!entrepriseId) {
+      return res.status(400).json({ error: "❌ entrepriseId requis" });
+    }
+
+    console.log("📊 GET /planning/terminees - Récupération historique pour:", entrepriseId);
+
+    const filter = { 
+      statut: "Terminée", 
+      entrepriseId 
+    };
+
+    // Filtre par période si spécifié
+    if (dateStart || dateEnd) {
+      filter.date = {};
+      if (dateStart && /^\d{4}-\d{2}-\d{2}$/.test(dateStart)) {
+        filter.date.$gte = dateStart;
+      }
+      if (dateEnd && /^\d{4}-\d{2}-\d{2}$/.test(dateEnd)) {
+        filter.date.$lte = dateEnd;
+      }
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const [courses, total] = await Promise.all([
+      Planning.find(filter)
+        .sort({ date: -1, heure: -1 })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
+      Planning.countDocuments(filter)
+    ]);
+
+    // Formater les courses pour l'historique
+    const coursesFormatted = courses.map(course => ({
+      ...course,
+      name: `${course.prenom || ''} ${course.nom || ''}`.trim() || 'Client sans nom',
+      pieceJointe: Array.isArray(course.pieceJointe) ? course.pieceJointe : [],
+      description: course.description || '',
+      prix: course.prix || 0
+    }));
+
+    console.log(`✅ ${coursesFormatted.length} courses terminées récupérées`);
+
+    res.status(200).json({
+      courses: coursesFormatted,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit))
+      }
+    });
+
+  } catch (err) {
+    console.error("❌ Erreur récupération historique :", err);
+    res.status(500).json({ error: "Erreur lors de la récupération de l'historique" });
+  }
+});
+
+// ✅ MODIFIER LE PRIX D'UNE COURSE TERMINÉE
+router.put("/price/:id", async (req, res) => {
+  try {
+    const { prix } = req.body;
+    
+    if (typeof prix !== 'number' || prix < 0) {
+      return res.status(400).json({ error: "⚠️ Le prix doit être un nombre positif." });
+    }
+
+    if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ error: "ID de course invalide" });
+    }
+
+    console.log("💰 PUT /planning/price - Mise à jour prix:", { id: req.params.id, prix });
+
+    const updated = await Planning.findByIdAndUpdate(
+      req.params.id, 
+      { 
+        prix: parseFloat(prix),
+        updatedAt: new Date()
+      }, 
+      { new: true, runValidators: true }
+    );
+    
+    if (!updated) {
+      return res.status(404).json({ message: "❌ Course non trouvée." });
+    }
+
+    console.log("✅ Prix mis à jour");
+    res.status(200).json({ 
+      message: "💰 Prix mis à jour", 
+      course: updated 
+    });
+
+  } catch (err) {
+    console.error("❌ Erreur mise à jour prix :", err);
+    
+    if (err.name === 'CastError') {
+      return res.status(400).json({ error: "ID de course invalide" });
+    }
+    
+    if (err.name === 'ValidationError') {
+      const errors = Object.values(err.errors).map(e => e.message);
+      return res.status(400).json({ error: errors.join(', ') });
+    }
+    
+    res.status(500).json({ error: "Erreur lors de la mise à jour du prix" });
+  }
+});
+
 // ✅ RÉCUPÉRER LES DÉTAILS D'UNE COURSE
 router.get("/course/:id", async (req, res) => {
   try {
