@@ -23,7 +23,14 @@ const planningSchema = new mongoose.Schema({
     validate: {
       validator: function(v) {
         // Accepter les numéros vides ou valides (format français/international)
-        return !v || /^(?:\+33|0)[1-9](?:[0-9]{8})$/.test(v.replace(/\s/g, ''));
+        if (!v || v === '' || v === null || v === undefined) return true;
+        if (typeof v !== 'string') return false;
+        
+        try {
+          return /^(?:\+33|0)[1-9](?:[0-9]{8})$/.test(v.replace(/\s/g, ''));
+        } catch (error) {
+          return false;
+        }
       },
       message: "Format de téléphone invalide"
     }
@@ -58,14 +65,20 @@ const planningSchema = new mongoose.Schema({
     validate: {
       validator: function(v) {
         // Validation du format YYYY-MM-DD et date valide
+        if (!v || typeof v !== 'string') return false;
         if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
         
-        const date = new Date(v + 'T00:00:00.000Z');
-        const [year, month, day] = v.split('-').map(Number);
-        
-        return date.getUTCFullYear() === year && 
-               date.getUTCMonth() === month - 1 && 
-               date.getUTCDate() === day;
+        try {
+          const date = new Date(v + 'T00:00:00.000Z');
+          const [year, month, day] = v.split('-').map(Number);
+          
+          return date.getUTCFullYear() === year && 
+                 date.getUTCMonth() === month - 1 && 
+                 date.getUTCDate() === day &&
+                 year >= 2020 && year <= 2100; // Plage raisonnable
+        } catch (error) {
+          return false;
+        }
       },
       message: "Format de date invalide ou date inexistante (YYYY-MM-DD)"
     },
@@ -76,10 +89,15 @@ const planningSchema = new mongoose.Schema({
     validate: {
       validator: function(v) {
         // Validation du format HH:MM et heure valide
+        if (!v || typeof v !== 'string') return false;
         if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(v)) return false;
         
-        const [hours, minutes] = v.split(':').map(Number);
-        return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
+        try {
+          const [hours, minutes] = v.split(':').map(Number);
+          return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
+        } catch (error) {
+          return false;
+        }
       },
       message: "Format d'heure invalide (HH:MM)"
     },
@@ -100,7 +118,15 @@ const planningSchema = new mongoose.Schema({
     default: "",
     trim: true,
     maxlength: [100, "Le nom du chauffeur ne peut pas dépasser 100 caractères"],
-    index: true // Index pour les requêtes par chauffeur
+    index: true, // Index pour les requêtes par chauffeur
+    validate: {
+      validator: function(v) {
+        if (!v || v === '') return true;
+        // Vérifier que le nom ne contient pas de caractères dangereux pour regex
+        return typeof v === 'string' && v.length <= 100;
+      },
+      message: "Nom de chauffeur invalide"
+    }
   },
   
   // Gestion et organisation
@@ -125,6 +151,7 @@ const planningSchema = new mongoose.Schema({
     validate: {
       validator: function(v) {
         // Validation du format couleur hexadécimal
+        if (!v || typeof v !== 'string') return false;
         return /^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/.test(v);
       },
       message: "Format de couleur invalide (hex: #RRGGBB ou #RGB)"
@@ -138,6 +165,7 @@ const planningSchema = new mongoose.Schema({
     validate: {
       validator: function(v) {
         // Vérifier que le prix a au maximum 2 décimales
+        if (typeof v !== 'number') return false;
         return Number.isInteger(v * 100);
       },
       message: "Le prix ne peut avoir que 2 décimales maximum"
@@ -164,10 +192,14 @@ const planningSchema = new mongoose.Schema({
     default: [],
     validate: {
       validator: function(v) {
-        // Limiter le nombre de pièces jointes
-        return v.length <= 10;
+        // Limiter le nombre de pièces jointes et vérifier le type
+        if (!Array.isArray(v)) return false;
+        if (v.length > 10) return false;
+        
+        // Vérifier que tous les éléments sont des strings
+        return v.every(item => typeof item === 'string' && item.length > 0);
       },
-      message: "Impossible d'avoir plus de 10 pièces jointes"
+      message: "Impossible d'avoir plus de 10 pièces jointes ou format invalide"
     }
   },
   
@@ -293,12 +325,16 @@ planningSchema.pre('save', function(next) {
   }
   
   // Validation personnalisée de la date/heure par rapport à maintenant
-  const courseDateTime = new Date(`${this.date}T${this.heure}:00.000Z`);
-  const now = new Date();
-  
-  // Permettre les courses dans le passé seulement si elles sont en cours ou terminées
-  if (courseDateTime < now && !['En cours', 'Terminée', 'Annulée'].includes(this.statut)) {
-    console.warn(`Course planifiée dans le passé: ${this.date} ${this.heure}`);
+  try {
+    const courseDateTime = new Date(`${this.date}T${this.heure}:00.000Z`);
+    const now = new Date();
+    
+    // Permettre les courses dans le passé seulement si elles sont en cours ou terminées
+    if (courseDateTime < now && !['En cours', 'Terminée', 'Annulée'].includes(this.statut)) {
+      console.warn(`Course planifiée dans le passé: ${this.date} ${this.heure}`);
+    }
+  } catch (error) {
+    console.warn(`Erreur validation date/heure: ${error.message}`);
   }
   
   next();
@@ -307,6 +343,11 @@ planningSchema.pre('save', function(next) {
 // Méthode virtuelle pour obtenir le nom complet du client
 planningSchema.virtual('client').get(function() {
   return `${this.prenom} ${this.nom}`.trim();
+});
+
+// Méthode virtuelle pour obtenir le nom complet formaté (prenom nom)
+planningSchema.virtual('name').get(function() {
+  return `${this.prenom || ''} ${this.nom || ''}`.trim() || 'Client sans nom';
 });
 
 // Méthode virtuelle pour obtenir l'itinéraire complet
@@ -417,7 +458,9 @@ planningSchema.statics.findByEntreprise = function(entrepriseId, options = {}) {
   }
   
   if (options.chauffeur) {
-    query.chauffeur = new RegExp(`^${options.chauffeur}$`, 'i');
+    // Échapper les caractères spéciaux pour éviter les erreurs regex
+    const escapedChauffeur = options.chauffeur.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    query.chauffeur = new RegExp(`^${escapedChauffeur}$`, 'i');
   }
   
   if (options.statut) {
@@ -492,6 +535,11 @@ planningSchema.set('toJSON', {
     
     // Garder l'ID sous sa forme originale
     ret.id = doc._id;
+    
+    // S'assurer que pieceJointe est toujours un tableau
+    if (!Array.isArray(ret.pieceJointe)) {
+      ret.pieceJointe = [];
+    }
     
     return ret;
   }

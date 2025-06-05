@@ -6,6 +6,42 @@ const path = require("path");
 const ExcelJS = require("exceljs");
 const fs = require("fs");
 
+// Fonction utilitaire pour échapper les caractères spéciaux regex
+function escapeRegExp(string) {
+  if (!string || typeof string !== 'string') return '';
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Fonction utilitaire pour valider les données d'entrée
+function validateInputData(data) {
+  const errors = [];
+  
+  // Validation des champs requis
+  const requiredFields = ['nom', 'prenom', 'depart', 'arrive', 'heure', 'date', 'entrepriseId'];
+  requiredFields.forEach(field => {
+    if (!data[field] || (typeof data[field] === 'string' && !data[field].trim())) {
+      errors.push(`Le champ ${field} est requis`);
+    }
+  });
+  
+  // Validation du format de date
+  if (data.date && !/^\d{4}-\d{2}-\d{2}$/.test(data.date)) {
+    errors.push("Format de date invalide (YYYY-MM-DD)");
+  }
+  
+  // Validation du format d'heure
+  if (data.heure && !/^([01]\d|2[0-3]):([0-5]\d)$/.test(data.heure)) {
+    errors.push("Format d'heure invalide (HH:MM)");
+  }
+  
+  // Validation de la couleur
+  if (data.color && !/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/.test(data.color)) {
+    errors.push("Format de couleur invalide");
+  }
+  
+  return errors;
+}
+
 // 📦 Configuration de Multer pour les fichiers joints
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -47,24 +83,21 @@ const upload = multer({
 // ✅ Ajouter une course
 router.post("/", async (req, res) => {
   try {
-    const { nom, prenom, depart, arrive, heure, description, date, chauffeur, entrepriseId, caisseSociale, color } = req.body;
+    const { nom, prenom, depart, arrive, heure, description, date, chauffeur, entrepriseId, caisseSociale, color, telephone } = req.body;
 
-    // Validation des champs requis
-    if (!nom || !prenom || !depart || !arrive || !heure || !description || !date || !entrepriseId) {
+    // Validation des données d'entrée
+    const validationErrors = validateInputData(req.body);
+    if (validationErrors.length > 0) {
       return res.status(400).json({ 
-        error: "⚠️ Tous les champs requis doivent être remplis.",
-        missing: { nom: !nom, prenom: !prenom, depart: !depart, arrive: !arrive, heure: !heure, description: !description, date: !date, entrepriseId: !entrepriseId }
+        error: "⚠️ Erreurs de validation",
+        details: validationErrors
       });
     }
 
-    // Validation du format de date
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      return res.status(400).json({ error: "Format de date invalide (YYYY-MM-DD)" });
-    }
-
-    // Validation du format d'heure
-    if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(heure)) {
-      return res.status(400).json({ error: "Format d'heure invalide (HH:MM)" });
+    // Validation de la date dans le futur (optionnel)
+    const courseDateTime = new Date(`${date}T${heure}:00.000Z`);
+    if (isNaN(courseDateTime.getTime())) {
+      return res.status(400).json({ error: "Date ou heure invalide" });
     }
 
     const newCourse = new Planning({
@@ -74,11 +107,12 @@ router.post("/", async (req, res) => {
       depart: depart.trim(),
       arrive: arrive.trim(),
       heure,
-      description: description.trim(),
+      description: description ? description.trim() : "",
       date,
-      chauffeur: chauffeur || "",
+      chauffeur: chauffeur ? chauffeur.trim() : "",
+      telephone: telephone ? telephone.trim() : "",
       statut: "En attente",
-      caisseSociale: caisseSociale || "",
+      caisseSociale: caisseSociale ? caisseSociale.trim() : "",
       color: color || "#5E35B1",
       createdAt: new Date(),
       updatedAt: new Date()
@@ -95,7 +129,14 @@ router.post("/", async (req, res) => {
     
     if (err.name === 'ValidationError') {
       const errors = Object.values(err.errors).map(e => e.message);
-      return res.status(400).json({ error: errors.join(', ') });
+      return res.status(400).json({ 
+        error: "Erreurs de validation", 
+        details: errors 
+      });
+    }
+    
+    if (err.name === 'CastError') {
+      return res.status(400).json({ error: "Données invalides" });
     }
     
     res.status(500).json({ error: "Erreur interne du serveur" });
@@ -114,12 +155,13 @@ router.get("/", async (req, res) => {
     // Construction du filtre
     const filter = { entrepriseId };
     
-    if (date) {
+    if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
       filter.date = date;
     }
     
-    if (chauffeur && chauffeur !== "all") {
-      filter.chauffeur = new RegExp(`^${chauffeur}$`, "i");
+    if (chauffeur && chauffeur !== "all" && chauffeur.trim()) {
+      const escapedChauffeur = escapeRegExp(chauffeur.trim());
+      filter.chauffeur = new RegExp(`^${escapedChauffeur}$`, "i");
     }
     
     if (statut && statut !== "all") {
@@ -130,7 +172,17 @@ router.get("/", async (req, res) => {
       .sort({ date: 1, heure: 1 })
       .lean(); // Utiliser lean() pour de meilleures performances
 
-    res.status(200).json(courses);
+    // S'assurer que tous les objets ont les champs nécessaires
+    const coursesFormatted = courses.map(course => ({
+      ...course,
+      name: `${course.prenom || ''} ${course.nom || ''}`.trim() || 'Client sans nom',
+      pieceJointe: Array.isArray(course.pieceJointe) ? course.pieceJointe : [],
+      telephone: course.telephone || '',
+      description: course.description || '',
+      notes: course.notes || ''
+    }));
+
+    res.status(200).json(coursesFormatted);
   } catch (err) {
     console.error("❌ Erreur récupération planning :", err);
     res.status(500).json({ error: "Erreur lors de la récupération des courses" });
@@ -147,22 +199,32 @@ router.get("/chauffeur/:chauffeurNom", async (req, res) => {
       return res.status(400).json({ error: "❌ entrepriseId requis" });
     }
 
-    if (!chauffeurNom) {
+    if (!chauffeurNom || !chauffeurNom.trim()) {
       return res.status(400).json({ error: "❌ Nom du chauffeur requis" });
     }
 
-    // Construction du filtre
+    // Construction du filtre avec échappement des caractères spéciaux
     const filter = {
       entrepriseId,
-      chauffeur: { $regex: new RegExp(`^${chauffeurNom}$`, "i") },
+      chauffeur: { $regex: new RegExp(`^${escapeRegExp(chauffeurNom.trim())}$`, "i") },
     };
 
     // Filtre par période si spécifié
     if (dateStart && dateEnd) {
+      // Validation des dates
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStart) || !/^\d{4}-\d{2}-\d{2}$/.test(dateEnd)) {
+        return res.status(400).json({ error: "Format de date invalide" });
+      }
       filter.date = { $gte: dateStart, $lte: dateEnd };
     } else if (dateStart) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStart)) {
+        return res.status(400).json({ error: "Format de date de début invalide" });
+      }
       filter.date = { $gte: dateStart };
     } else if (dateEnd) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateEnd)) {
+        return res.status(400).json({ error: "Format de date de fin invalide" });
+      }
       filter.date = { $lte: dateEnd };
     }
 
@@ -170,9 +232,26 @@ router.get("/chauffeur/:chauffeurNom", async (req, res) => {
       .sort({ date: 1, heure: 1 })
       .lean();
 
-    res.status(200).json(courses);
+    // Formater les courses avec tous les champs nécessaires
+    const coursesFormatted = courses.map(course => ({
+      ...course,
+      name: `${course.prenom || ''} ${course.nom || ''}`.trim() || 'Client sans nom',
+      pieceJointe: Array.isArray(course.pieceJointe) ? course.pieceJointe : [],
+      telephone: course.telephone || '',
+      description: course.description || '',
+      notes: course.notes || '',
+      depart: course.depart || 'Adresse de départ non spécifiée',
+      arrive: course.arrive || 'Adresse d\'arrivée non spécifiée'
+    }));
+
+    res.status(200).json(coursesFormatted);
   } catch (err) {
     console.error("❌ Erreur récupération planning chauffeur :", err);
+    
+    if (err.message.includes('Invalid regular expression')) {
+      return res.status(400).json({ error: "Nom de chauffeur contient des caractères invalides" });
+    }
+    
     res.status(500).json({ error: "Erreur lors de la récupération du planning" });
   }
 });
@@ -182,8 +261,13 @@ router.put("/send/:id", async (req, res) => {
   try {
     const { chauffeur, color } = req.body;
     
-    if (!chauffeur) {
+    if (!chauffeur || !chauffeur.trim()) {
       return res.status(400).json({ error: "⚠️ Le chauffeur doit être spécifié." });
+    }
+
+    // Validation de l'ID
+    if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ error: "ID de course invalide" });
     }
 
     const updateData = { 
@@ -192,7 +276,7 @@ router.put("/send/:id", async (req, res) => {
       updatedAt: new Date()
     };
     
-    if (color) {
+    if (color && /^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/.test(color)) {
       updateData.color = color;
     }
 
@@ -217,6 +301,11 @@ router.put("/send/:id", async (req, res) => {
       return res.status(400).json({ error: "ID de course invalide" });
     }
     
+    if (err.name === 'ValidationError') {
+      const errors = Object.values(err.errors).map(e => e.message);
+      return res.status(400).json({ error: errors.join(', ') });
+    }
+    
     res.status(500).json({ error: "Erreur lors de l'assignation" });
   }
 });
@@ -226,8 +315,13 @@ router.put("/color/:id", async (req, res) => {
   try {
     const { color } = req.body;
     
-    if (!color) {
-      return res.status(400).json({ error: "⚠️ Couleur requise." });
+    if (!color || !/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/.test(color)) {
+      return res.status(400).json({ error: "⚠️ Couleur valide requise (format hex)." });
+    }
+
+    // Validation de l'ID
+    if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ error: "ID de course invalide" });
     }
 
     console.log("🎨 Requête reçue pour changement de couleur :", req.params.id, color);
@@ -263,6 +357,11 @@ router.put("/color/:id", async (req, res) => {
 // ✅ Marquer une course comme terminée
 router.put("/finish/:id", async (req, res) => {
   try {
+    // Validation de l'ID
+    if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ error: "ID de course invalide" });
+    }
+
     const updateData = { 
       statut: "Terminée",
       dateFin: new Date(),
@@ -271,7 +370,11 @@ router.put("/finish/:id", async (req, res) => {
 
     // Si ce n'était pas encore en cours, marquer aussi le début
     const currentCourse = await Planning.findById(req.params.id);
-    if (currentCourse && !currentCourse.dateDebut) {
+    if (!currentCourse) {
+      return res.status(404).json({ message: "❌ Course non trouvée." });
+    }
+
+    if (!currentCourse.dateDebut) {
       updateData.dateDebut = new Date();
     }
 
@@ -280,10 +383,6 @@ router.put("/finish/:id", async (req, res) => {
       updateData,
       { new: true, runValidators: true }
     );
-    
-    if (!updatedCourse) {
-      return res.status(404).json({ message: "❌ Course non trouvée." });
-    }
 
     console.log(`🔔 ALERTE : Course terminée par ${updatedCourse.chauffeur} à ${new Date().toLocaleString()}`);
     
@@ -319,8 +418,12 @@ router.get("/terminees", async (req, res) => {
     // Filtre par période si spécifié
     if (dateStart || dateEnd) {
       filter.date = {};
-      if (dateStart) filter.date.$gte = dateStart;
-      if (dateEnd) filter.date.$lte = dateEnd;
+      if (dateStart && /^\d{4}-\d{2}-\d{2}$/.test(dateStart)) {
+        filter.date.$gte = dateStart;
+      }
+      if (dateEnd && /^\d{4}-\d{2}-\d{2}$/.test(dateEnd)) {
+        filter.date.$lte = dateEnd;
+      }
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -354,14 +457,19 @@ router.put("/price/:id", async (req, res) => {
   try {
     const { prix } = req.body;
     
-    if (prix < 0) {
-      return res.status(400).json({ error: "⚠️ Le prix ne peut pas être négatif." });
+    if (typeof prix !== 'number' || prix < 0) {
+      return res.status(400).json({ error: "⚠️ Le prix doit être un nombre positif." });
+    }
+
+    // Validation de l'ID
+    if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ error: "ID de course invalide" });
     }
 
     const updated = await Planning.findByIdAndUpdate(
       req.params.id, 
       { 
-        prix: parseFloat(prix) || 0,
+        prix: parseFloat(prix),
         updatedAt: new Date()
       }, 
       { new: true, runValidators: true }
@@ -382,6 +490,11 @@ router.put("/price/:id", async (req, res) => {
       return res.status(400).json({ error: "ID de course invalide" });
     }
     
+    if (err.name === 'ValidationError') {
+      const errors = Object.values(err.errors).map(e => e.message);
+      return res.status(400).json({ error: errors.join(', ') });
+    }
+    
     res.status(500).json({ error: "Erreur lors de la mise à jour du prix" });
   }
 });
@@ -389,6 +502,11 @@ router.put("/price/:id", async (req, res) => {
 // ✅ Supprimer une course
 router.delete("/:id", async (req, res) => {
   try {
+    // Validation de l'ID
+    if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ error: "ID de course invalide" });
+    }
+
     const deleted = await Planning.findByIdAndDelete(req.params.id);
     
     if (!deleted) {
@@ -396,7 +514,7 @@ router.delete("/:id", async (req, res) => {
     }
 
     // Supprimer les fichiers associés
-    if (deleted.pieceJointe && deleted.pieceJointe.length > 0) {
+    if (deleted.pieceJointe && Array.isArray(deleted.pieceJointe) && deleted.pieceJointe.length > 0) {
       deleted.pieceJointe.forEach(filePath => {
         const fullPath = path.join(__dirname, "..", filePath);
         if (fs.existsSync(fullPath)) {
@@ -429,6 +547,16 @@ router.post("/upload/:id", upload.single("file"), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: "❌ Aucun fichier envoyé." });
+    }
+
+    // Validation de l'ID
+    if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      // Supprimer le fichier uploadé si l'ID est invalide
+      const fullPath = path.join(__dirname, "..", "uploads", req.file.filename);
+      if (fs.existsSync(fullPath)) {
+        fs.unlinkSync(fullPath);
+      }
+      return res.status(400).json({ error: "ID de course invalide" });
     }
 
     const filePath = `/uploads/${req.file.filename}`;
@@ -486,13 +614,28 @@ router.post("/upload/:id", upload.single("file"), async (req, res) => {
 // ✅ Récupérer les détails d'une course pour le partage
 router.get("/course/:id", async (req, res) => {
   try {
+    // Validation de l'ID
+    if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ error: "ID de course invalide" });
+    }
+
     const course = await Planning.findById(req.params.id).lean();
     
     if (!course) {
       return res.status(404).json({ message: "❌ Course non trouvée." });
     }
     
-    res.status(200).json(course);
+    // Formater la course avec tous les champs nécessaires
+    const courseFormatted = {
+      ...course,
+      name: `${course.prenom || ''} ${course.nom || ''}`.trim() || 'Client sans nom',
+      pieceJointe: Array.isArray(course.pieceJointe) ? course.pieceJointe : [],
+      telephone: course.telephone || '',
+      description: course.description || '',
+      notes: course.notes || ''
+    };
+    
+    res.status(200).json(courseFormatted);
   } catch (err) {
     console.error("❌ Erreur récupération course :", err);
     
@@ -511,6 +654,11 @@ router.put("/accept/:id", async (req, res) => {
     
     if (!entrepriseId) {
       return res.status(400).json({ error: "❌ entrepriseId requis" });
+    }
+
+    // Validation de l'ID
+    if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ error: "ID de course invalide" });
     }
 
     const updatedCourse = await Planning.findByIdAndUpdate(
@@ -551,6 +699,11 @@ router.put("/refuse/:id", async (req, res) => {
       return res.status(400).json({ error: "❌ entrepriseId requis" });
     }
 
+    // Validation de l'ID
+    if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ error: "ID de course invalide" });
+    }
+
     const updatedCourse = await Planning.findByIdAndUpdate(
       req.params.id,
       { 
@@ -583,6 +736,11 @@ router.put("/refuse/:id", async (req, res) => {
 // ✅ Mettre à jour une course complète
 router.put("/:id", async (req, res) => {
   try {
+    // Validation de l'ID
+    if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ error: "ID de course invalide" });
+    }
+
     const allowedUpdates = [
       'nom', 'prenom', 'telephone', 'caisseSociale', 
       'depart', 'arrive', 'date', 'heure', 'statut', 
@@ -591,12 +749,30 @@ router.put("/:id", async (req, res) => {
     
     const updates = {};
     Object.keys(req.body).forEach(key => {
-      if (allowedUpdates.includes(key)) {
-        updates[key] = req.body[key];
+      if (allowedUpdates.includes(key) && req.body[key] !== undefined) {
+        // Nettoyer les strings
+        if (typeof req.body[key] === 'string') {
+          updates[key] = req.body[key].trim();
+        } else {
+          updates[key] = req.body[key];
+        }
       }
     });
     
     updates.updatedAt = new Date();
+
+    // Validation des données avant mise à jour
+    if (updates.date && !/^\d{4}-\d{2}-\d{2}$/.test(updates.date)) {
+      return res.status(400).json({ error: "Format de date invalide" });
+    }
+    
+    if (updates.heure && !/^([01]\d|2[0-3]):([0-5]\d)$/.test(updates.heure)) {
+      return res.status(400).json({ error: "Format d'heure invalide" });
+    }
+    
+    if (updates.color && !/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/.test(updates.color)) {
+      return res.status(400).json({ error: "Format de couleur invalide" });
+    }
 
     const updatedCourse = await Planning.findByIdAndUpdate(
       req.params.id,
@@ -631,6 +807,11 @@ router.put("/:id", async (req, res) => {
 // ✅ Marquer une course comme en cours
 router.put("/start/:id", async (req, res) => {
   try {
+    // Validation de l'ID
+    if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ error: "ID de course invalide" });
+    }
+
     const updatedCourse = await Planning.findByIdAndUpdate(
       req.params.id,
       { 
