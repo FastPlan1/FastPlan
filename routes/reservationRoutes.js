@@ -33,9 +33,9 @@ const DemandesReservationsScreen = () => {
   const fetchReservations = async () => {
     setLoading(true);
     try {
-      const res = await axios.get(`${API_BASE_URL}/reservations/entreprise/${user.entrepriseId}`, {
+      const res = await axios.get(`${API_BASE_URL}/api/reservations/entreprise/${user.entrepriseId}`, {
         headers: {
-          'Authorization': `Bearer ${user.token}`, // Ajout sécurité
+          'Authorization': `Bearer ${user.token}`,
         }
       });
       console.log("📦 Réservations reçues :", res.data);
@@ -61,7 +61,7 @@ const DemandesReservationsScreen = () => {
           text: "Accepter", 
           onPress: async () => {
             try {
-              await axios.put(`${API_BASE_URL}/reservations/accepter/${id}`, {}, {
+              await axios.put(`${API_BASE_URL}/api/reservations/accepter/${id}`, {}, {
                 headers: {
                   'Authorization': `Bearer ${user.token}`,
                 }
@@ -71,9 +71,6 @@ const DemandesReservationsScreen = () => {
                   text: "Voir le planning",
                   onPress: () => {
                     fetchReservations();
-                    // Navigation vers le planning
-                    // Remplacez 'navigation' par votre prop de navigation
-                    // navigation.navigate('PlanningGeneralScreen');
                   }
                 },
                 {
@@ -81,7 +78,6 @@ const DemandesReservationsScreen = () => {
                   onPress: () => fetchReservations()
                 }
               ]);
-              fetchReservations();
             } catch (error) {
               console.error("❌ Erreur acceptation :", error.response?.data || error.message);
               Alert.alert(
@@ -106,7 +102,7 @@ const DemandesReservationsScreen = () => {
           style: "destructive",
           onPress: async () => {
             try {
-              await axios.put(`${API_BASE_URL}/reservations/refuser/${id}`, {}, {
+              await axios.put(`${API_BASE_URL}/api/reservations/refuser/${id}`, {}, {
                 headers: {
                   'Authorization': `Bearer ${user.token}`,
                 }
@@ -126,10 +122,9 @@ const DemandesReservationsScreen = () => {
     );
   };
 
-  // 🆕 Génération du lien de réservation
   const generateReservationLink = async () => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/reservations/generer-lien/${user.entrepriseId}`, {}, {
+      const response = await axios.post(`${API_BASE_URL}/api/reservations/generer-lien/${user.entrepriseId}`, {}, {
         headers: {
           'Authorization': `Bearer ${user.token}`,
         }
@@ -151,7 +146,6 @@ const DemandesReservationsScreen = () => {
     }
   };
 
-  // 🆕 Partage manuel du lien
   const shareLink = async (link) => {
     try {
       await Share.share({
@@ -159,7 +153,6 @@ const DemandesReservationsScreen = () => {
         title: 'Lien de réservation',
       });
     } catch (error) {
-      // Fallback: copier dans le presse-papier
       Clipboard.setString(link);
       Alert.alert("📋 Copié", "Le lien a été copié dans le presse-papier");
     }
@@ -168,6 +161,25 @@ const DemandesReservationsScreen = () => {
   const copyToClipboard = () => {
     Clipboard.setString(generatedLink);
     Alert.alert("📋 Copié", "Lien copié dans le presse-papier");
+  };
+
+  const getStatusStyle = (statut) => {
+    if (!statut) return styles.statusDefault;
+    
+    const normalizedStatus = statut.toLowerCase().replace(/[^a-z]/g, '');
+    
+    switch (normalizedStatus) {
+      case 'enattente':
+        return styles.statusPending;
+      case 'acceptee':
+      case 'accepte':
+        return styles.statusAccepted;
+      case 'refusee':
+      case 'refuse':
+        return styles.statusRefused;
+      default:
+        return styles.statusDefault;
+    }
   };
 
   return (
@@ -200,7 +212,7 @@ const DemandesReservationsScreen = () => {
                   <Text style={styles.clientName}>
                     🧑 {reservation.nom} {reservation.prenom}
                   </Text>
-                  <Text style={[styles.status, styles[reservation.statut?.toLowerCase()]]}>
+                  <Text style={[styles.status, getStatusStyle(reservation.statut)]}>
                     {reservation.statut}
                   </Text>
                 </View>
@@ -220,13 +232,13 @@ const DemandesReservationsScreen = () => {
                 {reservation.statut === "En attente" && (
                   <View style={styles.actions}>
                     <TouchableOpacity
-                      style={[styles.btn, styles.accept]}
+                      style={[styles.btn, styles.acceptBtn]}
                       onPress={() => handleAccept(reservation._id)}
                     >
                       <Text style={styles.btnText}>✅ Accepter</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={[styles.btn, styles.refuse]}
+                      style={[styles.btn, styles.refuseBtn]}
                       onPress={() => handleRefuse(reservation._id)}
                     >
                       <Text style={styles.btnText}>❌ Refuser</Text>
@@ -239,7 +251,6 @@ const DemandesReservationsScreen = () => {
         </ScrollView>
       )}
 
-      {/* 🆕 Modal pour créer un lien de réservation */}
       <Modal
         animationType="slide"
         transparent={true}
@@ -416,25 +427,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 12,
-    overflow: "hidden",
+    textAlign: "center",
   },
-  "en attente": {
+  statusDefault: {
+    backgroundColor: "#e9ecef",
+    color: "#495057",
+  },
+  statusPending: {
     backgroundColor: "#fff3cd",
     color: "#856404",
   },
-  "acceptée": {
+  statusAccepted: {
     backgroundColor: "#d4edda",
     color: "#155724",
   },
-  "accepté": {
-    backgroundColor: "#d4edda",
-    color: "#155724",
-  },
-  "refusée": {
-    backgroundColor: "#f8d7da",
-    color: "#721c24",
-  },
-  "refusé": {
+  statusRefused: {
     backgroundColor: "#f8d7da",
     color: "#721c24",
   },
@@ -449,10 +456,10 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: "center",
   },
-  accept: {
+  acceptBtn: {
     backgroundColor: "#28a745",
   },
-  refuse: {
+  refuseBtn: {
     backgroundColor: "#dc3545",
   },
   btnText: {
@@ -460,8 +467,6 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     fontSize: 16,
   },
-  
-  // Styles pour le modal
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.5)",

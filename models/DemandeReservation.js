@@ -1,4 +1,3 @@
-// Dans /accepter/:id
 const newCourse = new Planning({
   nom: reservation.nom,
   prenom: reservation.prenom,
@@ -10,5 +9,5 @@ const newCourse = new Planning({
   statut: "En attente",
   chauffeur: "Patron",
   color: "#1a73e8",
+  entrepriseId: reservation.entrepriseId, // 👈 Ajout pour filtrer par entreprise
 });
-await newCourse.save();
