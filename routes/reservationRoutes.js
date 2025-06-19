@@ -1,224 +1,611 @@
-const express = require("express");
-const router = express.Router();
-const Reservation = require("../models/DemandeReservation");
-const Planning = require("../models/Planning");
-const Entreprise = require("../models/Entreprise");
-const crypto = require("crypto");
-const mongoose = require("mongoose");
+import React, { useEffect, useState, useContext } from "react";
+import { 
+  View, 
+  Text, 
+  ScrollView, 
+  Alert, 
+  TouchableOpacity, 
+  StyleSheet, 
+  ActivityIndicator,
+  TextInput,
+  Modal,
+  Clipboard,
+  Share
+} from "react-native";
+import axios from "axios";
+import { AuthContext } from "../context/AuthContext";
+import { API_BASE_URL } from "../config";
+import moment from "moment";
 
-// ✅ Créer une nouvelle demande de réservation (client)
-router.post("/", async (req, res) => {
-  try {
-    const {
-      nom,
-      prenom,
-      email,
-      telephone,
-      depart,
-      arrive,
-      date,
-      heure,
-      description,
-      entrepriseId,
-    } = req.body;
+const DemandesReservationsScreen = () => {
+  const { user } = useContext(AuthContext);
+  const [reservations, setReservations] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [clientEmail, setClientEmail] = useState("");
+  const [clientPhone, setClientPhone] = useState("");
+  const [generatedLink, setGeneratedLink] = useState("");
 
-    if (!nom || !prenom || !email || !telephone || !depart || !arrive || !date || !heure) {
-      return res.status(400).json({
-        error: "⚠️ Tous les champs obligatoires doivent être remplis.",
+  useEffect(() => {
+    fetchReservations();
+  }, []);
+
+  const fetchReservations = async () => {
+    setLoading(true);
+    try {
+      const res = await axios.get(`${API_BASE_URL}/reservations/entreprise/${user.entrepriseId}`, {
+        headers: {
+          'Authorization': `Bearer ${user.token}`, // Ajout sécurité
+        }
       });
+      console.log("📦 Réservations reçues :", res.data);
+      setReservations(res.data);
+    } catch (error) {
+      console.error("❌ Erreur récupération réservations :", error.response?.data || error.message);
+      Alert.alert(
+        "Erreur", 
+        `Impossible de récupérer les réservations: ${error.response?.data?.message || error.message}`
+      );
+    } finally {
+      setLoading(false);
     }
+  };
 
-    const nouvelleReservation = new Reservation({
-      nom,
-      prenom,
-      email,
-      telephone,
-      depart,
-      arrive,
-      date,
-      heure,
-      description,
-      entrepriseId: entrepriseId || null,
-    });
-
-    await nouvelleReservation.save();
-    res.status(201).json({ message: "✅ Réservation envoyée avec succès." });
-  } catch (err) {
-    console.error("❌ Erreur création réservation :", err);
-    res.status(500).json({ error: "Erreur serveur" });
-  }
-});
-
-// ✅ Récupérer toutes les demandes d'une entreprise
-router.get("/entreprise/:entrepriseId", async (req, res) => {
-  try {
-    const { entrepriseId } = req.params;
-    const reservations = await Reservation.find({ entrepriseId }).sort({ createdAt: -1 });
-    res.status(200).json(reservations);
-  } catch (err) {
-    console.error("❌ Erreur récupération réservations :", err);
-    res.status(500).json({ error: "Erreur serveur" });
-  }
-});
-
-// ✅ Accepter une réservation
-router.put("/accepter/:id", async (req, res) => {
-  try {
-    const reservation = await Reservation.findByIdAndUpdate(
-      req.params.id,
-      { statut: "Acceptée" },
-      { new: true }
+  const handleAccept = async (id) => {
+    Alert.alert(
+      "Confirmer l'acceptation",
+      "Êtes-vous sûr de vouloir accepter cette réservation ?",
+      [
+        { text: "Annuler", style: "cancel" },
+        { 
+          text: "Accepter", 
+          onPress: async () => {
+            try {
+              await axios.put(`${API_BASE_URL}/reservations/accepter/${id}`, {}, {
+                headers: {
+                  'Authorization': `Bearer ${user.token}`,
+                }
+              });
+              Alert.alert("✅ Succès", "Réservation acceptée et ajoutée au planning", [
+                {
+                  text: "Voir le planning",
+                  onPress: () => {
+                    fetchReservations();
+                    // Navigation vers le planning
+                    // Remplacez 'navigation' par votre prop de navigation
+                    // navigation.navigate('PlanningGeneralScreen');
+                  }
+                },
+                {
+                  text: "OK",
+                  onPress: () => fetchReservations()
+                }
+              ]);
+              fetchReservations();
+            } catch (error) {
+              console.error("❌ Erreur acceptation :", error.response?.data || error.message);
+              Alert.alert(
+                "Erreur", 
+                `Impossible d'accepter cette réservation: ${error.response?.data?.message || error.message}`
+              );
+            }
+          }
+        }
+      ]
     );
+  };
 
-    if (!reservation) {
-      return res.status(404).json({ error: "Réservation non trouvée." });
-    }
-
-    const newCourse = new Planning({
-      nom: reservation.nom,
-      prenom: reservation.prenom,
-      depart: reservation.depart,
-      arrive: reservation.arrive,
-      date: reservation.date,
-      heure: reservation.heure,
-      description: reservation.description,
-      statut: "En attente",
-      chauffeur: "Patron", // ✅ Important pour affichage immédiat
-      color: "#1a73e8",     // ✅ Couleur par défaut pour l’agenda
-    });
-
-    await newCourse.save();
-
-    res.status(200).json({
-      message: "✅ Réservation acceptée et ajoutée au planning.",
-      reservation,
-    });
-  } catch (err) {
-    console.error("❌ Erreur acceptation réservation :", err);
-    res.status(500).json({ error: "Erreur serveur" });
-  }
-});
-
-// ✅ Refuser une réservation
-router.put("/refuser/:id", async (req, res) => {
-  try {
-    const reservation = await Reservation.findByIdAndUpdate(
-      req.params.id,
-      { statut: "Refusée" },
-      { new: true }
+  const handleRefuse = async (id) => {
+    Alert.alert(
+      "Confirmer le refus",
+      "Êtes-vous sûr de vouloir refuser cette réservation ?",
+      [
+        { text: "Annuler", style: "cancel" },
+        { 
+          text: "Refuser", 
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await axios.put(`${API_BASE_URL}/reservations/refuser/${id}`, {}, {
+                headers: {
+                  'Authorization': `Bearer ${user.token}`,
+                }
+              });
+              Alert.alert("❌ Refusée", "Réservation refusée");
+              fetchReservations();
+            } catch (error) {
+              console.error("❌ Erreur refus :", error.response?.data || error.message);
+              Alert.alert(
+                "Erreur", 
+                `Impossible de refuser cette réservation: ${error.response?.data?.message || error.message}`
+              );
+            }
+          }
+        }
+      ]
     );
+  };
 
-    if (!reservation) {
-      return res.status(404).json({ error: "Réservation non trouvée." });
+  // 🆕 Génération du lien de réservation
+  const generateReservationLink = async () => {
+    if (!clientEmail && !clientPhone) {
+      Alert.alert("Erreur", "Veuillez saisir au moins un email ou un téléphone");
+      return;
     }
 
-    res.status(200).json({ message: "❌ Réservation refusée.", reservation });
-  } catch (err) {
-    console.error("❌ Erreur refus réservation :", err);
-    res.status(500).json({ error: "Erreur serveur" });
-  }
-});
+    try {
+      const response = await axios.post(`${API_BASE_URL}/reservations/generate-link`, {
+        entrepriseId: user.entrepriseId,
+        clientEmail: clientEmail,
+        clientPhone: clientPhone,
+      }, {
+        headers: {
+          'Authorization': `Bearer ${user.token}`,
+        }
+      });
 
-// ✅ Supprimer une réservation
-router.delete("/:id", async (req, res) => {
-  try {
-    const deleted = await Reservation.findByIdAndDelete(req.params.id);
-    if (!deleted) {
-      return res.status(404).json({ error: "Réservation non trouvée." });
+      const linkData = response.data;
+      const reservationLink = `${API_BASE_URL}/reservation-form/${linkData.linkId}`;
+      
+      setGeneratedLink(reservationLink);
+      
+      // Optionnel : envoyer automatiquement par email/SMS
+      await sendLinkToClient(reservationLink, clientEmail, clientPhone);
+      
+    } catch (error) {
+      console.error("❌ Erreur génération lien :", error.response?.data || error.message);
+      Alert.alert(
+        "Erreur", 
+        `Impossible de générer le lien: ${error.response?.data?.message || error.message}`
+      );
     }
+  };
 
-    res.status(200).json({ message: "🗑️ Réservation supprimée." });
-  } catch (err) {
-    console.error("❌ Erreur suppression réservation :", err);
-    res.status(500).json({ error: "Erreur serveur" });
-  }
-});
+  // 🆕 Envoi du lien au client
+  const sendLinkToClient = async (link, email, phone) => {
+    try {
+      await axios.post(`${API_BASE_URL}/notifications/send-reservation-link`, {
+        link: link,
+        clientEmail: email,
+        clientPhone: phone,
+        entrepriseId: user.entrepriseId,
+      }, {
+        headers: {
+          'Authorization': `Bearer ${user.token}`,
+        }
+      });
 
-// 📌 Générer lien unique pour les clients
-router.post("/generer-lien/:entrepriseId", async (req, res) => {
-  try {
-    const lienUnique = crypto.randomBytes(8).toString("hex");
-
-    const entreprise = await Entreprise.findByIdAndUpdate(
-      req.params.entrepriseId,
-      { lienReservation: lienUnique },
-      { new: true }
-    );
-
-    res.status(200).json({
-      message: "🔗 Lien généré avec succès !",
-      lien: lienUnique,
-    });
-  } catch (err) {
-    console.error("❌ Erreur génération lien :", err);
-    res.status(500).json({ error: "Erreur serveur lors de la génération du lien." });
-  }
-});
-
-// 📌 Récupérer l'entreprise par lien unique
-router.get("/client/:lienReservation", async (req, res) => {
-  try {
-    const entreprise = await Entreprise.findOne({
-      lienReservation: req.params.lienReservation,
-    });
-
-    if (!entreprise) {
-      return res.status(404).json({ error: "Lien invalide." });
+      Alert.alert(
+        "✅ Lien envoyé", 
+        `Le lien de réservation a été envoyé ${email ? 'par email' : ''}${email && phone ? ' et ' : ''}${phone ? 'par SMS' : ''}`
+      );
+      
+      // Reset form
+      setClientEmail("");
+      setClientPhone("");
+      setModalVisible(false);
+      
+    } catch (error) {
+      console.error("❌ Erreur envoi lien :", error.response?.data || error.message);
+      Alert.alert("Erreur", "Lien généré mais impossible de l'envoyer automatiquement");
+      
+      // Proposer de partager manuellement
+      shareLink(link);
     }
+  };
 
-    res.status(200).json({
-      entrepriseId: entreprise._id,
-      entrepriseNom: entreprise.nom,
-    });
-  } catch (err) {
-    console.error("❌ Erreur récupération entreprise par lien :", err);
-    res.status(500).json({ error: "Erreur serveur" });
-  }
-});
-
-// 📌 Soumission du formulaire client
-router.post("/client/:lienReservation", async (req, res) => {
-  const {
-    nom,
-    prenom,
-    email,
-    telephone,
-    depart,
-    arrive,
-    date,
-    heure,
-    description,
-  } = req.body;
-
-  try {
-    const entreprise = await Entreprise.findOne({
-      lienReservation: req.params.lienReservation,
-    });
-
-    if (!entreprise) {
-      return res.status(404).json({ error: "Lien invalide." });
+  // 🆕 Partage manuel du lien
+  const shareLink = async (link) => {
+    try {
+      await Share.share({
+        message: `Bonjour, voici votre lien de réservation pour ${user.entrepriseName || 'notre service'}: ${link}`,
+        title: 'Lien de réservation',
+      });
+    } catch (error) {
+      // Fallback: copier dans le presse-papier
+      Clipboard.setString(link);
+      Alert.alert("📋 Copié", "Le lien a été copié dans le presse-papier");
     }
+  };
 
-    const reservation = new Reservation({
-      entrepriseId: entreprise._id,
-      nom,
-      prenom,
-      email,
-      telephone,
-      depart,
-      arrive,
-      date,
-      heure,
-      description,
-      statut: "En attente",
-    });
+  const copyToClipboard = () => {
+    Clipboard.setString(generatedLink);
+    Alert.alert("📋 Copié", "Lien copié dans le presse-papier");
+  };
 
-    await reservation.save();
-    res.status(201).json({ message: "✅ Demande envoyée avec succès !" });
-  } catch (err) {
-    console.error("❌ Erreur soumission client :", err);
-    res.status(500).json({ error: "Erreur serveur" });
-  }
+  return (
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.title}>📩 Demandes de Réservations</Text>
+        <TouchableOpacity
+          style={styles.addButton}
+          onPress={() => setModalVisible(true)}
+        >
+          <Text style={styles.addButtonText}>+ Nouveau lien</Text>
+        </TouchableOpacity>
+      </View>
+
+      {loading ? (
+        <ActivityIndicator size="large" color="#007bff" style={styles.loader} />
+      ) : (
+        <ScrollView showsVerticalScrollIndicator={false}>
+          {reservations.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.noData}>📭 Aucune réservation disponible</Text>
+              <Text style={styles.noDataSub}>
+                Créez un lien de réservation pour que vos clients puissent faire leurs demandes
+              </Text>
+            </View>
+          ) : (
+            reservations.map((reservation) => (
+              <View key={reservation._id} style={styles.card}>
+                <View style={styles.cardHeader}>
+                  <Text style={styles.clientName}>
+                    🧑 {reservation.nom} {reservation.prenom}
+                  </Text>
+                  <Text style={[styles.status, styles[reservation.statut?.toLowerCase()]]}>
+                    {reservation.statut}
+                  </Text>
+                </View>
+                
+                <View style={styles.cardContent}>
+                  <Text style={styles.text}>
+                    📅 {moment(reservation.date).format("dddd DD MMMM YYYY")} à {reservation.heure}
+                  </Text>
+                  <Text style={styles.text}>📍 {reservation.depart} → {reservation.arrive}</Text>
+                  <Text style={styles.text}>📞 {reservation.telephone}</Text>
+                  <Text style={styles.text}>📧 {reservation.email}</Text>
+                  {reservation.description ? (
+                    <Text style={styles.description}>📝 {reservation.description}</Text>
+                  ) : null}
+                </View>
+
+                {reservation.statut === "En attente" && (
+                  <View style={styles.actions}>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.accept]}
+                      onPress={() => handleAccept(reservation._id)}
+                    >
+                      <Text style={styles.btnText}>✅ Accepter</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.refuse]}
+                      onPress={() => handleRefuse(reservation._id)}
+                    >
+                      <Text style={styles.btnText}>❌ Refuser</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            ))
+          )}
+        </ScrollView>
+      )}
+
+      {/* 🆕 Modal pour créer un lien de réservation */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={modalVisible}
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>🔗 Créer un lien de réservation</Text>
+            
+            <Text style={styles.inputLabel}>Email du client (optionnel)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="client@example.com"
+              value={clientEmail}
+              onChangeText={setClientEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+            />
+            
+            <Text style={styles.inputLabel}>Téléphone du client (optionnel)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="+33 6 12 34 56 78"
+              value={clientPhone}
+              onChangeText={setClientPhone}
+              keyboardType="phone-pad"
+            />
+
+            {generatedLink ? (
+              <View style={styles.generatedLinkContainer}>
+                <Text style={styles.generatedLinkLabel}>Lien généré :</Text>
+                <TouchableOpacity style={styles.linkContainer} onPress={copyToClipboard}>
+                  <Text style={styles.generatedLinkText} numberOfLines={2}>
+                    {generatedLink}
+                  </Text>
+                  <Text style={styles.copyHint}>📋 Appuyer pour copier</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.shareButton}
+                  onPress={() => shareLink(generatedLink)}
+                >
+                  <Text style={styles.shareButtonText}>📤 Partager</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.cancelBtn]}
+                onPress={() => {
+                  setModalVisible(false);
+                  setClientEmail("");
+                  setClientPhone("");
+                  setGeneratedLink("");
+                }}
+              >
+                <Text style={styles.cancelBtnText}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.generateBtn]}
+                onPress={generateReservationLink}
+              >
+                <Text style={styles.generateBtnText}>
+                  {generatedLink ? "Regénérer" : "Générer lien"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
+};
+
+export default DemandesReservationsScreen;
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#f8f9fa",
+  },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 16,
+    backgroundColor: "#fff",
+    borderBottomWidth: 1,
+    borderBottomColor: "#e9ecef",
+  },
+  title: {
+    fontSize: 22,
+    fontWeight: "bold",
+    color: "#343a40",
+  },
+  addButton: {
+    backgroundColor: "#007bff",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  addButtonText: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 14,
+  },
+  loader: {
+    marginTop: 50,
+  },
+  emptyState: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: 80,
+    paddingHorizontal: 20,
+  },
+  noData: {
+    textAlign: "center",
+    fontSize: 18,
+    color: "#6c757d",
+    marginBottom: 8,
+  },
+  noDataSub: {
+    textAlign: "center",
+    fontSize: 14,
+    color: "#9ba5ab",
+    lineHeight: 20,
+  },
+  card: {
+    backgroundColor: "#fff",
+    marginHorizontal: 16,
+    marginVertical: 8,
+    borderRadius: 12,
+    padding: 16,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  cardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  clientName: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#343a40",
+    flex: 1,
+  },
+  cardContent: {
+    marginBottom: 12,
+  },
+  text: {
+    fontSize: 16,
+    marginVertical: 3,
+    color: "#495057",
+  },
+  description: {
+    fontSize: 16,
+    marginVertical: 3,
+    color: "#495057",
+    fontStyle: "italic",
+    backgroundColor: "#f8f9fa",
+    padding: 8,
+    borderRadius: 6,
+    marginTop: 8,
+  },
+  status: {
+    fontSize: 14,
+    fontWeight: "bold",
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  "en attente": {
+    backgroundColor: "#fff3cd",
+    color: "#856404",
+  },
+  "acceptée": {
+    backgroundColor: "#d4edda",
+    color: "#155724",
+  },
+  "accepté": {
+    backgroundColor: "#d4edda",
+    color: "#155724",
+  },
+  "refusée": {
+    backgroundColor: "#f8d7da",
+    color: "#721c24",
+  },
+  "refusé": {
+    backgroundColor: "#f8d7da",
+    color: "#721c24",
+  },
+  actions: {
+    flexDirection: "row",
+    marginTop: 12,
+  },
+  btn: {
+    flex: 1,
+    padding: 12,
+    marginHorizontal: 4,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  accept: {
+    backgroundColor: "#28a745",
+  },
+  refuse: {
+    backgroundColor: "#dc3545",
+  },
+  btnText: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 16,
+  },
+  
+  // Styles pour le modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 24,
+    width: "90%",
+    maxWidth: 400,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    textAlign: "center",
+    marginBottom: 20,
+    color: "#343a40",
+  },
+  inputLabel: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#495057",
+    marginBottom: 8,
+    marginTop: 12,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: "#ced4da",
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    backgroundColor: "#fff",
+  },
+  generatedLinkContainer: {
+    marginTop: 20,
+    padding: 16,
+    backgroundColor: "#f8f9fa",
+    borderRadius: 8,
+  },
+  generatedLinkLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#495057",
+    marginBottom: 8,
+  },
+  linkContainer: {
+    backgroundColor: "#fff",
+    padding: 12,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#dee2e6",
+  },
+  generatedLinkText: {
+    fontSize: 14,
+    color: "#007bff",
+    marginBottom: 4,
+  },
+  copyHint: {
+    fontSize: 12,
+    color: "#6c757d",
+    fontStyle: "italic",
+  },
+  shareButton: {
+    backgroundColor: "#17a2b8",
+    padding: 12,
+    borderRadius: 8,
+    alignItems: "center",
+    marginTop: 12,
+  },
+  shareButtonText: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 16,
+  },
+  modalActions: {
+    flexDirection: "row",
+    marginTop: 24,
+  },
+  modalBtn: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 8,
+    alignItems: "center",
+    marginHorizontal: 4,
+  },
+  cancelBtn: {
+    backgroundColor: "#6c757d",
+  },
+  cancelBtnText: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 16,
+  },
+  generateBtn: {
+    backgroundColor: "#007bff",
+  },
+  generateBtnText: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 16,
+  },
 });
-
-module.exports = router;
