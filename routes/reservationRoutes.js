@@ -128,29 +128,19 @@ const DemandesReservationsScreen = () => {
 
   // 🆕 Génération du lien de réservation
   const generateReservationLink = async () => {
-    if (!clientEmail && !clientPhone) {
-      Alert.alert("Erreur", "Veuillez saisir au moins un email ou un téléphone");
-      return;
-    }
-
     try {
-      const response = await axios.post(`${API_BASE_URL}/reservations/generate-link`, {
-        entrepriseId: user.entrepriseId,
-        clientEmail: clientEmail,
-        clientPhone: clientPhone,
-      }, {
+      const response = await axios.post(`${API_BASE_URL}/reservations/generer-lien/${user.entrepriseId}`, {}, {
         headers: {
           'Authorization': `Bearer ${user.token}`,
         }
       });
 
       const linkData = response.data;
-      const reservationLink = `${API_BASE_URL}/reservation-form/${linkData.linkId}`;
+      const reservationLink = `${API_BASE_URL}/api/reservations/client/${linkData.lien}`;
       
       setGeneratedLink(reservationLink);
       
-      // Optionnel : envoyer automatiquement par email/SMS
-      await sendLinkToClient(reservationLink, clientEmail, clientPhone);
+      Alert.alert("✅ Lien généré", "Le lien de réservation a été créé avec succès");
       
     } catch (error) {
       console.error("❌ Erreur génération lien :", error.response?.data || error.message);
@@ -158,39 +148,6 @@ const DemandesReservationsScreen = () => {
         "Erreur", 
         `Impossible de générer le lien: ${error.response?.data?.message || error.message}`
       );
-    }
-  };
-
-  // 🆕 Envoi du lien au client
-  const sendLinkToClient = async (link, email, phone) => {
-    try {
-      await axios.post(`${API_BASE_URL}/notifications/send-reservation-link`, {
-        link: link,
-        clientEmail: email,
-        clientPhone: phone,
-        entrepriseId: user.entrepriseId,
-      }, {
-        headers: {
-          'Authorization': `Bearer ${user.token}`,
-        }
-      });
-
-      Alert.alert(
-        "✅ Lien envoyé", 
-        `Le lien de réservation a été envoyé ${email ? 'par email' : ''}${email && phone ? ' et ' : ''}${phone ? 'par SMS' : ''}`
-      );
-      
-      // Reset form
-      setClientEmail("");
-      setClientPhone("");
-      setModalVisible(false);
-      
-    } catch (error) {
-      console.error("❌ Erreur envoi lien :", error.response?.data || error.message);
-      Alert.alert("Erreur", "Lien généré mais impossible de l'envoyer automatiquement");
-      
-      // Proposer de partager manuellement
-      shareLink(link);
     }
   };
 
