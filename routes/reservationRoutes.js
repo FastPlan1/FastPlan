@@ -48,10 +48,12 @@ router.post("/", async (req, res) => {
   }
 });
 
-// ✅ Récupérer toutes les demandes d'une entreprise
+// ✅ Récupérer toutes les demandes d'une entreprise - AVEC LOGS DE DEBUG
 router.get("/entreprise/:entrepriseId", async (req, res) => {
   try {
     const { entrepriseId } = req.params;
+    
+    console.log("🔍 [DEBUG] Recherche réservations pour entrepriseId:", entrepriseId);
     
     if (!entrepriseId || entrepriseId === "undefined") {
       return res.status(400).json({ 
@@ -60,10 +62,23 @@ router.get("/entreprise/:entrepriseId", async (req, res) => {
       });
     }
 
-    // Recherche des réservations - fonctionne avec IDs temporaires et ObjectIds
+    // Recherche des réservations avec logs détaillés
     const reservations = await Reservation.find({ entrepriseId }).sort({ createdAt: -1 });
     
-    console.log(`📦 ${reservations.length} réservations trouvées pour l'entreprise ${entrepriseId}`);
+    console.log(`📦 [DEBUG] ${reservations.length} réservations trouvées pour l'entreprise ${entrepriseId}`);
+    
+    if (reservations.length > 0) {
+      console.log("📋 [DEBUG] Première réservation:", {
+        id: reservations[0]._id,
+        client: `${reservations[0].nom} ${reservations[0].prenom}`,
+        entrepriseId: reservations[0].entrepriseId,
+        statut: reservations[0].statut
+      });
+    }
+    
+    // 🔍 DEBUG: Compter toutes les réservations dans la base
+    const totalReservations = await Reservation.countDocuments({});
+    console.log(`🗂️ [DEBUG] Total réservations dans la base: ${totalReservations}`);
     
     res.status(200).json(reservations);
   } catch (err) {
@@ -179,10 +194,12 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
-// 🆕 Générer lien unique pour les clients - CORRIGÉ pour gérer les IDs temporaires
+// 🆕 Générer lien unique pour les clients - AVEC LOGS DE DEBUG
 router.post("/generer-lien/:entrepriseId", async (req, res) => {
   try {
     const { entrepriseId } = req.params;
+    
+    console.log("🔗 [DEBUG] Génération lien pour entrepriseId:", entrepriseId);
     
     if (!entrepriseId) {
       return res.status(400).json({ 
@@ -195,8 +212,10 @@ router.post("/generer-lien/:entrepriseId", async (req, res) => {
 
     let entreprise;
     
-    // 🔧 CORRECTION : Gérer les IDs temporaires ET les ObjectIds
+    // Gérer les IDs temporaires ET les ObjectIds
     if (entrepriseId.startsWith('temp-')) {
+      console.log("🏢 [DEBUG] ID temporaire détecté:", entrepriseId);
+      
       // Pour les IDs temporaires, chercher d'abord s'il existe
       entreprise = await Entreprise.findOne({ tempId: entrepriseId });
       
@@ -205,18 +224,29 @@ router.post("/generer-lien/:entrepriseId", async (req, res) => {
         entreprise = new Entreprise({
           tempId: entrepriseId,
           nom: "Entreprise temporaire",
+          email: "temp@example.com", // Champ requis
           lienReservation: lienUnique,
-          createdAt: new Date()
+          dateCreation: new Date()
         });
         await entreprise.save();
-        console.log(`🆕 Nouvelle entreprise temporaire créée: ${entrepriseId}`);
+        console.log(`🆕 [DEBUG] Nouvelle entreprise temporaire créée:`, {
+          _id: entreprise._id,
+          tempId: entreprise.tempId,
+          nom: entreprise.nom
+        });
       } else {
         // Mettre à jour l'entreprise existante
         entreprise.lienReservation = lienUnique;
         await entreprise.save();
-        console.log(`🔄 Entreprise temporaire mise à jour: ${entrepriseId}`);
+        console.log(`🔄 [DEBUG] Entreprise temporaire mise à jour:`, {
+          _id: entreprise._id,
+          tempId: entreprise.tempId,
+          nom: entreprise.nom
+        });
       }
     } else {
+      console.log("🏢 [DEBUG] ObjectId normal détecté:", entrepriseId);
+      
       // Pour les ObjectIds normaux
       try {
         entreprise = await Entreprise.findByIdAndUpdate(
@@ -239,7 +269,12 @@ router.post("/generer-lien/:entrepriseId", async (req, res) => {
       });
     }
 
-    console.log(`🔗 Nouveau lien généré pour l'entreprise ${entreprise.nom || entreprise.tempId}: ${lienUnique}`);
+    console.log(`🔗 [DEBUG] Lien généré avec succès:`, {
+      entrepriseId: entreprise._id,
+      tempId: entreprise.tempId,
+      nom: entreprise.nom,
+      lien: lienUnique
+    });
 
     res.status(200).json({
       message: "🔗 Lien généré avec succès !",
@@ -255,26 +290,36 @@ router.post("/generer-lien/:entrepriseId", async (req, res) => {
   }
 });
 
-// 📌 Récupérer l'entreprise par lien unique (pour le formulaire client)
+// 📌 Récupérer l'entreprise par lien unique - AVEC LOGS DE DEBUG
 router.get("/client/:lienReservation", async (req, res) => {
   try {
     const { lienReservation } = req.params;
+
+    console.log("🔍 [DEBUG] Recherche entreprise par lien:", lienReservation);
 
     const entreprise = await Entreprise.findOne({
       lienReservation: lienReservation,
     });
 
     if (!entreprise) {
+      console.log("❌ [DEBUG] Aucune entreprise trouvée pour le lien:", lienReservation);
       return res.status(404).json({ 
         error: "Lien invalide.",
         message: "Ce lien de réservation n'existe pas ou a expiré"
       });
     }
 
-    console.log(`🔍 Lien de réservation valide pour ${entreprise.nom || entreprise.tempId}`);
+    console.log(`🔍 [DEBUG] Entreprise trouvée:`, {
+      _id: entreprise._id,
+      tempId: entreprise.tempId,
+      nom: entreprise.nom,
+      lienReservation: entreprise.lienReservation
+    });
 
     // Récupérer l'ID correct pour les réservations (tempId ou _id)
-    const entrepriseIdForReservation = entreprise.tempId || entreprise._id;
+    const entrepriseIdForReservation = entreprise.tempId || entreprise._id.toString();
+    
+    console.log(`📋 [DEBUG] ID utilisé pour les réservations: ${entrepriseIdForReservation}`);
 
     // Retour d'une page HTML simple pour le client
     const htmlForm = `
@@ -388,6 +433,14 @@ router.get("/client/:lienReservation", async (req, res) => {
         .form-row .form-group {
           flex: 1;
         }
+        .debug-info {
+          background: #f8f9fa;
+          padding: 10px;
+          border-radius: 5px;
+          font-size: 12px;
+          color: #666;
+          margin-bottom: 20px;
+        }
         @media (max-width: 600px) {
           .form-row {
             flex-direction: column;
@@ -402,6 +455,10 @@ router.get("/client/:lienReservation", async (req, res) => {
           <h1>🚗 Réservation de transport</h1>
           <h2>${entreprise.nom || 'Service de transport'}</h2>
           <p>Remplissez le formulaire ci-dessous pour faire votre demande de réservation</p>
+        </div>
+
+        <div class="debug-info">
+          🔧 Debug Info: Entreprise ID = ${entrepriseIdForReservation}
         </div>
 
         <div id="successMessage" class="success">
@@ -470,6 +527,8 @@ router.get("/client/:lienReservation", async (req, res) => {
       </div>
 
       <script>
+        console.log("🔧 [CLIENT DEBUG] Entreprise ID qui sera envoyé:", "${entrepriseIdForReservation}");
+
         document.getElementById('reservationForm').addEventListener('submit', async function(e) {
           e.preventDefault();
           
@@ -488,6 +547,8 @@ router.get("/client/:lienReservation", async (req, res) => {
           const data = Object.fromEntries(formData);
           data.entrepriseId = "${entrepriseIdForReservation}"; // Ajouter l'ID de l'entreprise
           
+          console.log("🔧 [CLIENT DEBUG] Données envoyées:", data);
+          
           try {
             const response = await fetch('/api/reservations/client/${lienReservation}', {
               method: 'POST',
@@ -499,16 +560,21 @@ router.get("/client/:lienReservation", async (req, res) => {
             
             loadingMsg.style.display = 'none';
             
+            const responseData = await response.json();
+            console.log("🔧 [CLIENT DEBUG] Réponse serveur:", responseData);
+            
             if (response.ok) {
               successMsg.style.display = 'block';
               this.reset();
               successMsg.scrollIntoView({ behavior: 'smooth' });
             } else {
-              throw new Error('Erreur lors de l\\'envoi');
+              throw new Error('Erreur lors de l\\'envoi: ' + responseData.message);
             }
           } catch (error) {
+            console.error("❌ [CLIENT DEBUG] Erreur:", error);
             loadingMsg.style.display = 'none';
             errorMsg.style.display = 'block';
+            errorMsg.innerHTML = "❌ Erreur: " + error.message;
             errorMsg.scrollIntoView({ behavior: 'smooth' });
           } finally {
             submitBtn.disabled = false;
@@ -517,18 +583,6 @@ router.get("/client/:lienReservation", async (req, res) => {
 
         // Définir la date minimale à aujourd'hui
         document.getElementById('date').min = new Date().toISOString().split('T')[0];
-        
-        // Validation en temps réel
-        const inputs = document.querySelectorAll('input[required]');
-        inputs.forEach(input => {
-          input.addEventListener('blur', function() {
-            if (!this.value.trim()) {
-              this.style.borderColor = '#dc3545';
-            } else {
-              this.style.borderColor = '#28a745';
-            }
-          });
-        });
       </script>
     </body>
     </html>
@@ -544,7 +598,7 @@ router.get("/client/:lienReservation", async (req, res) => {
   }
 });
 
-// 📌 Soumission du formulaire client (via lien unique)
+// 📌 Soumission du formulaire client - AVEC LOGS DE DEBUG COMPLETS
 router.post("/client/:lienReservation", async (req, res) => {
   const {
     nom,
@@ -559,9 +613,17 @@ router.post("/client/:lienReservation", async (req, res) => {
     entrepriseId, // Récupéré du formulaire HTML
   } = req.body;
 
+  console.log("📝 [DEBUG] Soumission formulaire client:", {
+    lienReservation: req.params.lienReservation,
+    client: `${nom} ${prenom}`,
+    entrepriseId: entrepriseId,
+    body: req.body
+  });
+
   try {
     // Validation des champs obligatoires
     if (!nom || !prenom || !email || !telephone || !depart || !arrive || !date || !heure) {
+      console.log("❌ [DEBUG] Champs manquants dans la soumission");
       return res.status(400).json({
         error: "Champs manquants",
         message: "Tous les champs obligatoires doivent être remplis."
@@ -573,14 +635,23 @@ router.post("/client/:lienReservation", async (req, res) => {
     });
 
     if (!entreprise) {
+      console.log("❌ [DEBUG] Entreprise non trouvée pour le lien:", req.params.lienReservation);
       return res.status(404).json({ 
         error: "Lien invalide.",
         message: "Ce lien de réservation n'existe pas ou a expiré"
       });
     }
 
+    console.log("🏢 [DEBUG] Entreprise trouvée pour la soumission:", {
+      _id: entreprise._id,
+      tempId: entreprise.tempId,
+      nom: entreprise.nom
+    });
+
     // Utiliser l'ID correct (tempId ou _id)
-    const finalEntrepriseId = entrepriseId || entreprise.tempId || entreprise._id;
+    const finalEntrepriseId = entrepriseId || entreprise.tempId || entreprise._id.toString();
+
+    console.log("🔧 [DEBUG] ID final utilisé pour la réservation:", finalEntrepriseId);
 
     const reservation = new Reservation({
       entrepriseId: finalEntrepriseId,
@@ -598,18 +669,70 @@ router.post("/client/:lienReservation", async (req, res) => {
 
     await reservation.save();
 
-    console.log(`✅ Nouvelle demande de réservation reçue pour ${entreprise.nom || entreprise.tempId}: ${nom} ${prenom}`);
+    console.log(`✅ [DEBUG] Réservation créée avec succès:`, {
+      _id: reservation._id,
+      entrepriseId: reservation.entrepriseId,
+      client: `${reservation.nom} ${reservation.prenom}`,
+      statut: reservation.statut,
+      createdAt: reservation.createdAt
+    });
+
+    // Vérifier que la réservation est bien dans la base
+    const verificationReservation = await Reservation.findById(reservation._id);
+    console.log("🔍 [DEBUG] Vérification réservation dans la base:", {
+      found: !!verificationReservation,
+      entrepriseId: verificationReservation?.entrepriseId
+    });
 
     res.status(201).json({ 
       message: "✅ Demande envoyée avec succès !",
-      reservationId: reservation._id
+      reservationId: reservation._id,
+      debug: {
+        entrepriseId: finalEntrepriseId,
+        savedReservation: {
+          id: reservation._id,
+          entrepriseId: reservation.entrepriseId
+        }
+      }
     });
   } catch (err) {
-    console.error("❌ Erreur soumission client :", err);
+    console.error("❌ [DEBUG] Erreur soumission client :", err);
     res.status(500).json({ 
       error: "Erreur serveur",
       message: err.message 
     });
+  }
+});
+
+// 🐛 Route de debug temporaire
+router.get("/debug/all", async (req, res) => {
+  try {
+    const allReservations = await Reservation.find({}).sort({ createdAt: -1 });
+    const allEntreprises = await Entreprise.find({});
+    
+    console.log("🐛 [DEBUG] Route debug appelée");
+    
+    res.json({
+      timestamp: new Date().toISOString(),
+      totalReservations: allReservations.length,
+      totalEntreprises: allEntreprises.length,
+      reservations: allReservations.map(r => ({
+        _id: r._id,
+        client: `${r.nom} ${r.prenom}`,
+        entrepriseId: r.entrepriseId,
+        statut: r.statut,
+        createdAt: r.createdAt
+      })),
+      entreprises: allEntreprises.map(e => ({
+        _id: e._id,
+        tempId: e.tempId,
+        nom: e.nom,
+        lienReservation: e.lienReservation
+      }))
+    });
+  } catch (err) {
+    console.error("❌ [DEBUG] Erreur route debug:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 
