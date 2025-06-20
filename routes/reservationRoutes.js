@@ -60,6 +60,7 @@ router.get("/entreprise/:entrepriseId", async (req, res) => {
       });
     }
 
+    // Recherche des réservations - fonctionne avec IDs temporaires et ObjectIds
     const reservations = await Reservation.find({ entrepriseId }).sort({ createdAt: -1 });
     
     console.log(`📦 ${reservations.length} réservations trouvées pour l'entreprise ${entrepriseId}`);
@@ -178,7 +179,7 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
-// 🆕 Générer lien unique pour les clients (utilisé par le modal du frontend)
+// 🆕 Générer lien unique pour les clients - CORRIGÉ pour gérer les IDs temporaires
 router.post("/generer-lien/:entrepriseId", async (req, res) => {
   try {
     const { entrepriseId } = req.params;
@@ -190,14 +191,46 @@ router.post("/generer-lien/:entrepriseId", async (req, res) => {
       });
     }
 
-    // Génération d'un lien unique plus long pour plus de sécurité
     const lienUnique = crypto.randomBytes(16).toString("hex");
 
-    const entreprise = await Entreprise.findByIdAndUpdate(
-      entrepriseId,
-      { lienReservation: lienUnique },
-      { new: true }
-    );
+    let entreprise;
+    
+    // 🔧 CORRECTION : Gérer les IDs temporaires ET les ObjectIds
+    if (entrepriseId.startsWith('temp-')) {
+      // Pour les IDs temporaires, chercher d'abord s'il existe
+      entreprise = await Entreprise.findOne({ tempId: entrepriseId });
+      
+      if (!entreprise) {
+        // Créer une nouvelle entreprise avec l'ID temporaire
+        entreprise = new Entreprise({
+          tempId: entrepriseId,
+          nom: "Entreprise temporaire",
+          lienReservation: lienUnique,
+          createdAt: new Date()
+        });
+        await entreprise.save();
+        console.log(`🆕 Nouvelle entreprise temporaire créée: ${entrepriseId}`);
+      } else {
+        // Mettre à jour l'entreprise existante
+        entreprise.lienReservation = lienUnique;
+        await entreprise.save();
+        console.log(`🔄 Entreprise temporaire mise à jour: ${entrepriseId}`);
+      }
+    } else {
+      // Pour les ObjectIds normaux
+      try {
+        entreprise = await Entreprise.findByIdAndUpdate(
+          entrepriseId,
+          { lienReservation: lienUnique },
+          { new: true }
+        );
+      } catch (error) {
+        return res.status(400).json({ 
+          error: "ID entreprise invalide",
+          message: "L'ID fourni n'est pas un ObjectId valide"
+        });
+      }
+    }
 
     if (!entreprise) {
       return res.status(404).json({ 
@@ -206,12 +239,12 @@ router.post("/generer-lien/:entrepriseId", async (req, res) => {
       });
     }
 
-    console.log(`🔗 Nouveau lien généré pour l'entreprise ${entreprise.nom}: ${lienUnique}`);
+    console.log(`🔗 Nouveau lien généré pour l'entreprise ${entreprise.nom || entreprise.tempId}: ${lienUnique}`);
 
     res.status(200).json({
       message: "🔗 Lien généré avec succès !",
       lien: lienUnique,
-      entrepriseNom: entreprise.nom
+      entrepriseNom: entreprise.nom || "Entreprise"
     });
   } catch (err) {
     console.error("❌ Erreur génération lien :", err);
@@ -238,7 +271,10 @@ router.get("/client/:lienReservation", async (req, res) => {
       });
     }
 
-    console.log(`🔍 Lien de réservation valide pour ${entreprise.nom}`);
+    console.log(`🔍 Lien de réservation valide pour ${entreprise.nom || entreprise.tempId}`);
+
+    // Récupérer l'ID correct pour les réservations (tempId ou _id)
+    const entrepriseIdForReservation = entreprise.tempId || entreprise._id;
 
     // Retour d'une page HTML simple pour le client
     const htmlForm = `
@@ -247,24 +283,35 @@ router.get("/client/:lienReservation", async (req, res) => {
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Réservation - ${entreprise.nom}</title>
+      <title>Réservation - ${entreprise.nom || 'Transport'}</title>
       <style>
         body { 
-          font-family: Arial, sans-serif; 
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
           max-width: 600px; 
           margin: 50px auto; 
           padding: 20px;
           background-color: #f8f9fa;
+          line-height: 1.6;
         }
         .container {
           background: white;
           padding: 30px;
           border-radius: 12px;
-          box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+          box-shadow: 0 4px 20px rgba(0,0,0,0.1);
         }
         .header {
           text-align: center;
           margin-bottom: 30px;
+          border-bottom: 2px solid #007bff;
+          padding-bottom: 20px;
+        }
+        .header h1 {
+          color: #007bff;
+          margin: 0 0 10px 0;
+        }
+        .header h2 {
+          color: #343a40;
+          margin: 0 0 10px 0;
         }
         .form-group {
           margin-bottom: 20px;
@@ -272,47 +319,80 @@ router.get("/client/:lienReservation", async (req, res) => {
         label {
           display: block;
           margin-bottom: 5px;
-          font-weight: bold;
-          color: #333;
+          font-weight: 600;
+          color: #495057;
         }
-        input, textarea, select {
+        input, textarea {
           width: 100%;
           padding: 12px;
-          border: 1px solid #ddd;
-          border-radius: 6px;
+          border: 2px solid #dee2e6;
+          border-radius: 8px;
           font-size: 16px;
           box-sizing: border-box;
+          transition: border-color 0.3s ease;
         }
-        .required { color: red; }
+        input:focus, textarea:focus {
+          outline: none;
+          border-color: #007bff;
+          box-shadow: 0 0 0 3px rgba(0,123,255,0.1);
+        }
+        .required { color: #dc3545; }
         .submit-btn {
-          background-color: #007bff;
+          background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
           color: white;
           padding: 15px 30px;
           border: none;
-          border-radius: 6px;
+          border-radius: 8px;
           font-size: 16px;
+          font-weight: 600;
           cursor: pointer;
           width: 100%;
           margin-top: 20px;
+          transition: transform 0.2s ease;
         }
         .submit-btn:hover {
-          background-color: #0056b3;
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(0,123,255,0.3);
+        }
+        .submit-btn:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+          transform: none;
+        }
+        .success, .error {
+          padding: 15px;
+          border-radius: 8px;
+          margin: 20px 0;
+          display: none;
+          font-weight: 500;
         }
         .success {
           background-color: #d4edda;
           color: #155724;
-          padding: 15px;
-          border-radius: 6px;
-          margin: 20px 0;
-          display: none;
+          border: 1px solid #c3e6cb;
         }
         .error {
           background-color: #f8d7da;
           color: #721c24;
-          padding: 15px;
-          border-radius: 6px;
-          margin: 20px 0;
+          border: 1px solid #f5c6cb;
+        }
+        .loading {
           display: none;
+          text-align: center;
+          color: #007bff;
+        }
+        .form-row {
+          display: flex;
+          gap: 15px;
+        }
+        .form-row .form-group {
+          flex: 1;
+        }
+        @media (max-width: 600px) {
+          .form-row {
+            flex-direction: column;
+            gap: 0;
+          }
         }
       </style>
     </head>
@@ -320,7 +400,7 @@ router.get("/client/:lienReservation", async (req, res) => {
       <div class="container">
         <div class="header">
           <h1>🚗 Réservation de transport</h1>
-          <h2>${entreprise.nom}</h2>
+          <h2>${entreprise.nom || 'Service de transport'}</h2>
           <p>Remplissez le formulaire ci-dessous pour faire votre demande de réservation</p>
         </div>
 
@@ -332,50 +412,57 @@ router.get("/client/:lienReservation", async (req, res) => {
           ❌ Une erreur s'est produite. Veuillez réessayer.
         </div>
 
+        <div id="loadingMessage" class="loading">
+          ⏳ Envoi en cours...
+        </div>
+
         <form id="reservationForm">
-          <div class="form-group">
-            <label for="nom">Nom <span class="required">*</span></label>
-            <input type="text" id="nom" name="nom" required>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="nom">Nom <span class="required">*</span></label>
+              <input type="text" id="nom" name="nom" required>
+            </div>
+            <div class="form-group">
+              <label for="prenom">Prénom <span class="required">*</span></label>
+              <input type="text" id="prenom" name="prenom" required>
+            </div>
           </div>
 
-          <div class="form-group">
-            <label for="prenom">Prénom <span class="required">*</span></label>
-            <input type="text" id="prenom" name="prenom" required>
-          </div>
-
-          <div class="form-group">
-            <label for="email">Email <span class="required">*</span></label>
-            <input type="email" id="email" name="email" required>
-          </div>
-
-          <div class="form-group">
-            <label for="telephone">Téléphone <span class="required">*</span></label>
-            <input type="tel" id="telephone" name="telephone" required>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="email">Email <span class="required">*</span></label>
+              <input type="email" id="email" name="email" required>
+            </div>
+            <div class="form-group">
+              <label for="telephone">Téléphone <span class="required">*</span></label>
+              <input type="tel" id="telephone" name="telephone" required>
+            </div>
           </div>
 
           <div class="form-group">
             <label for="depart">Lieu de départ <span class="required">*</span></label>
-            <input type="text" id="depart" name="depart" required>
+            <input type="text" id="depart" name="depart" required placeholder="Adresse de départ">
           </div>
 
           <div class="form-group">
             <label for="arrive">Lieu d'arrivée <span class="required">*</span></label>
-            <input type="text" id="arrive" name="arrive" required>
+            <input type="text" id="arrive" name="arrive" required placeholder="Adresse d'arrivée">
           </div>
 
-          <div class="form-group">
-            <label for="date">Date <span class="required">*</span></label>
-            <input type="date" id="date" name="date" required>
-          </div>
-
-          <div class="form-group">
-            <label for="heure">Heure <span class="required">*</span></label>
-            <input type="time" id="heure" name="heure" required>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="date">Date <span class="required">*</span></label>
+              <input type="date" id="date" name="date" required>
+            </div>
+            <div class="form-group">
+              <label for="heure">Heure <span class="required">*</span></label>
+              <input type="time" id="heure" name="heure" required>
+            </div>
           </div>
 
           <div class="form-group">
             <label for="description">Description (optionnel)</label>
-            <textarea id="description" name="description" rows="3" placeholder="Informations supplémentaires..."></textarea>
+            <textarea id="description" name="description" rows="3" placeholder="Informations supplémentaires (nombre de passagers, bagages, etc.)"></textarea>
           </div>
 
           <button type="submit" class="submit-btn">📩 Envoyer ma demande</button>
@@ -386,8 +473,20 @@ router.get("/client/:lienReservation", async (req, res) => {
         document.getElementById('reservationForm').addEventListener('submit', async function(e) {
           e.preventDefault();
           
+          const submitBtn = this.querySelector('.submit-btn');
+          const loadingMsg = document.getElementById('loadingMessage');
+          const successMsg = document.getElementById('successMessage');
+          const errorMsg = document.getElementById('errorMessage');
+          
+          // Masquer les messages
+          successMsg.style.display = 'none';
+          errorMsg.style.display = 'none';
+          loadingMsg.style.display = 'block';
+          submitBtn.disabled = true;
+          
           const formData = new FormData(this);
           const data = Object.fromEntries(formData);
+          data.entrepriseId = "${entrepriseIdForReservation}"; // Ajouter l'ID de l'entreprise
           
           try {
             const response = await fetch('/api/reservations/client/${lienReservation}', {
@@ -398,24 +497,38 @@ router.get("/client/:lienReservation", async (req, res) => {
               body: JSON.stringify(data)
             });
             
+            loadingMsg.style.display = 'none';
+            
             if (response.ok) {
-              document.getElementById('successMessage').style.display = 'block';
-              document.getElementById('errorMessage').style.display = 'none';
+              successMsg.style.display = 'block';
               this.reset();
-              // Scroll vers le message de succès
-              document.getElementById('successMessage').scrollIntoView({ behavior: 'smooth' });
+              successMsg.scrollIntoView({ behavior: 'smooth' });
             } else {
-              throw new Error('Erreur lors de l\'envoi');
+              throw new Error('Erreur lors de l\\'envoi');
             }
           } catch (error) {
-            document.getElementById('errorMessage').style.display = 'block';
-            document.getElementById('successMessage').style.display = 'none';
-            document.getElementById('errorMessage').scrollIntoView({ behavior: 'smooth' });
+            loadingMsg.style.display = 'none';
+            errorMsg.style.display = 'block';
+            errorMsg.scrollIntoView({ behavior: 'smooth' });
+          } finally {
+            submitBtn.disabled = false;
           }
         });
 
         // Définir la date minimale à aujourd'hui
         document.getElementById('date').min = new Date().toISOString().split('T')[0];
+        
+        // Validation en temps réel
+        const inputs = document.querySelectorAll('input[required]');
+        inputs.forEach(input => {
+          input.addEventListener('blur', function() {
+            if (!this.value.trim()) {
+              this.style.borderColor = '#dc3545';
+            } else {
+              this.style.borderColor = '#28a745';
+            }
+          });
+        });
       </script>
     </body>
     </html>
@@ -443,6 +556,7 @@ router.post("/client/:lienReservation", async (req, res) => {
     date,
     heure,
     description,
+    entrepriseId, // Récupéré du formulaire HTML
   } = req.body;
 
   try {
@@ -465,8 +579,11 @@ router.post("/client/:lienReservation", async (req, res) => {
       });
     }
 
+    // Utiliser l'ID correct (tempId ou _id)
+    const finalEntrepriseId = entrepriseId || entreprise.tempId || entreprise._id;
+
     const reservation = new Reservation({
-      entrepriseId: entreprise._id,
+      entrepriseId: finalEntrepriseId,
       nom,
       prenom,
       email,
@@ -481,7 +598,7 @@ router.post("/client/:lienReservation", async (req, res) => {
 
     await reservation.save();
 
-    console.log(`✅ Nouvelle demande de réservation reçue pour ${entreprise.nom}: ${nom} ${prenom}`);
+    console.log(`✅ Nouvelle demande de réservation reçue pour ${entreprise.nom || entreprise.tempId}: ${nom} ${prenom}`);
 
     res.status(201).json({ 
       message: "✅ Demande envoyée avec succès !",

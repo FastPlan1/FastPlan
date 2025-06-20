@@ -1,18 +1,50 @@
 const mongoose = require('mongoose');
 
-const ReservationSchema = new mongoose.Schema({
-    nom: { type: String, required: true },
-    prenom: { type: String, required: true },
-    email: { type: String, required: true },
-    telephone: { type: String, required: true },
-    depart: { type: String, required: true },
-    arrive: { type: String, required: true },
-    date: { type: String, required: true },
-    heure: { type: String, required: true },
-    description: { type: String, required: false },
-    statut: { type: String, default: "En attente" }, // En attente, Acceptée, Refusée
-    entrepriseId: { type: String, required: false },
-    createdAt: { type: Date, default: Date.now }
+const EntrepriseSchema = new mongoose.Schema({
+  nom: { 
+    type: String, 
+    required: true 
+  },
+  email: { 
+    type: String 
+  },
+  telephone: { 
+    type: String 
+  },
+  adresse: { 
+    type: String 
+  },
+  // 🆕 Champ pour gérer les IDs temporaires
+  tempId: { 
+    type: String, 
+    unique: true,
+    sparse: true // Permet d'avoir des valeurs null sans conflit
+  },
+  // Lien de réservation unique généré
+  lienReservation: { 
+    type: String,
+    unique: true,
+    sparse: true
+  },
+  // Métadonnées
+  createdAt: { 
+    type: Date, 
+    default: Date.now 
+  },
+  updatedAt: { 
+    type: Date, 
+    default: Date.now 
+  }
 });
 
-module.exports = mongoose.model("Reservation", ReservationSchema);
+// Middleware pour mettre à jour updatedAt
+EntrepriseSchema.pre('save', function(next) {
+  this.updatedAt = new Date();
+  next();
+});
+
+// Index pour optimiser les recherches
+EntrepriseSchema.index({ tempId: 1 });
+EntrepriseSchema.index({ lienReservation: 1 });
+
+module.exports = mongoose.model('Entreprise', EntrepriseSchema);
