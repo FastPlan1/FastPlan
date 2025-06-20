@@ -254,8 +254,8 @@ router.post("/generer-lien/:entrepriseId", async (req, res) => {
         try {
           entreprise = new Entreprise({
             tempId: entrepriseId,
-            nom: "Mon Entreprise de Transport", // 🔧 Nom plus professionnel
-            email: `contact-${Date.now()}@transport.com`, // 🔧 Email unique
+            nom: "Mon Entreprise de Transport",
+            email: `contact-${Date.now()}@transport.com`,
             lienReservation: lienUnique,
             dateCreation: new Date()
           });
@@ -848,7 +848,97 @@ router.post("/client/:lienReservation", async (req, res) => {
   }
 });
 
-// 🧹 Route de nettoyage de la base de données (À SUPPRIMER après utilisation)
+// 🔧 NOUVELLES ROUTES DE CORRECTION
+
+// 🧹 Route pour corriger les réservations sans entrepriseId
+router.post("/admin/fix-reservations", async (req, res) => {
+  try {
+    console.log("🔧 [DEBUG] Correction des réservations...");
+    
+    // Trouver toutes les réservations sans entrepriseId
+    const reservationsSansEntreprise = await Reservation.find({
+      $or: [
+        { entrepriseId: { $exists: false } },
+        { entrepriseId: null },
+        { entrepriseId: "" }
+      ]
+    });
+    
+    console.log(`🔧 Found ${reservationsSansEntreprise.length} réservations sans entrepriseId`);
+    
+    // Assigner l'entrepriseId par défaut
+    const entrepriseParDefaut = await Entreprise.findOne({ 
+      tempId: "temp-63577c4b-4e58-47a5-aa18-07c768981d85" 
+    });
+    
+    if (entrepriseParDefaut) {
+      const result = await Reservation.updateMany(
+        {
+          $or: [
+            { entrepriseId: { $exists: false } },
+            { entrepriseId: null },
+            { entrepriseId: "" }
+          ]
+        },
+        { 
+          $set: { 
+            entrepriseId: entrepriseParDefaut.tempId 
+          } 
+        }
+      );
+      
+      console.log(`🔧 ${result.modifiedCount} réservations corrigées`);
+      
+      res.json({
+        message: "Réservations corrigées avec succès",
+        reservationsCorrigees: result.modifiedCount,
+        entrepriseId: entrepriseParDefaut.tempId,
+        reservationsSansEntreprise: reservationsSansEntreprise.map(r => ({
+          id: r._id,
+          client: `${r.nom} ${r.prenom}`,
+          email: r.email
+        }))
+      });
+    } else {
+      res.status(404).json({ error: "Entreprise par défaut non trouvée" });
+    }
+  } catch (err) {
+    console.error("❌ Erreur correction:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 🧹 Route pour supprimer les fausses réservations
+router.post("/admin/clean-fake-reservations", async (req, res) => {
+  try {
+    console.log("🧹 [DEBUG] Suppression des fausses réservations...");
+    
+    // Supprimer les réservations qui sont en fait des entreprises ou invalides
+    const deleted = await Reservation.deleteMany({
+      $or: [
+        { nom: "Entreprise temporaire" },
+        { nom: "Mon Entreprise de Transport" },
+        { email: { $regex: /@gmaol\.com$/ } }, // Email avec faute de frappe
+        { prenom: { $exists: false } },
+        { prenom: null },
+        { prenom: "" },
+        { prenom: "undefined" }
+      ]
+    });
+    
+    console.log(`🧹 ${deleted.deletedCount} fausses réservations supprimées`);
+    
+    res.json({
+      message: "Fausses réservations supprimées",
+      supprimees: deleted.deletedCount
+    });
+  } catch (err) {
+    console.error("❌ Erreur nettoyage fausses réservations:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 🧹 Route de nettoyage de la base de données
 router.post("/admin/cleanup", async (req, res) => {
   try {
     console.log("🧹 [DEBUG] Démarrage nettoyage base de données");
@@ -927,6 +1017,8 @@ router.get("/debug/all", async (req, res) => {
         client: `${r.nom} ${r.prenom}`,
         entrepriseId: r.entrepriseId,
         statut: r.statut,
+        email: r.email,
+        telephone: r.telephone,
         createdAt: r.createdAt
       })),
       entreprises: allEntreprises.map(e => ({
