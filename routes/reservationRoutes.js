@@ -48,7 +48,7 @@ router.post("/", async (req, res) => {
   }
 });
 
-// ✅ Récupérer toutes les demandes d'une entreprise - AVEC LOGS DE DEBUG
+// ✅ Récupérer toutes les demandes d'une entreprise - VERSION CORRIGÉE
 router.get("/entreprise/:entrepriseId", async (req, res) => {
   try {
     const { entrepriseId } = req.params;
@@ -62,18 +62,48 @@ router.get("/entreprise/:entrepriseId", async (req, res) => {
       });
     }
 
-    // Recherche des réservations avec logs détaillés
-    const reservations = await Reservation.find({ entrepriseId }).sort({ createdAt: -1 });
+    // 🔧 SOLUTION : Rechercher avec TOUS les IDs possibles
+    let reservations = [];
+    
+    if (entrepriseId.startsWith('temp-')) {
+      // Pour les IDs temporaires, chercher AUSSI par l'ObjectId de l'entreprise
+      const entreprise = await Entreprise.findOne({ tempId: entrepriseId });
+      
+      if (entreprise) {
+        console.log("🏢 [DEBUG] Entreprise trouvée:", {
+          _id: entreprise._id,
+          tempId: entreprise.tempId,
+          nom: entreprise.nom
+        });
+        
+        // Chercher les réservations avec TOUS les IDs possibles
+        reservations = await Reservation.find({
+          $or: [
+            { entrepriseId: entrepriseId }, // ID temporaire
+            { entrepriseId: entreprise._id.toString() }, // ObjectId en string
+            { entrepriseId: entreprise._id } // ObjectId
+          ]
+        }).sort({ createdAt: -1 });
+      } else {
+        // Si pas d'entreprise trouvée, chercher quand même avec l'ID temporaire
+        reservations = await Reservation.find({ entrepriseId }).sort({ createdAt: -1 });
+      }
+    } else {
+      // Pour les ObjectIds normaux
+      reservations = await Reservation.find({ entrepriseId }).sort({ createdAt: -1 });
+    }
     
     console.log(`📦 [DEBUG] ${reservations.length} réservations trouvées pour l'entreprise ${entrepriseId}`);
     
     if (reservations.length > 0) {
-      console.log("📋 [DEBUG] Première réservation:", {
-        id: reservations[0]._id,
-        client: `${reservations[0].nom} ${reservations[0].prenom}`,
-        entrepriseId: reservations[0].entrepriseId,
-        statut: reservations[0].statut
-      });
+      console.log("📋 [DEBUG] Exemples de réservations trouvées:", 
+        reservations.slice(0, 2).map(r => ({
+          id: r._id,
+          client: `${r.nom} ${r.prenom}`,
+          entrepriseId: r.entrepriseId,
+          statut: r.statut
+        }))
+      );
     }
     
     // 🔍 DEBUG: Compter toutes les réservations dans la base
@@ -194,7 +224,7 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
-// 🆕 Générer lien unique pour les clients - AVEC LOGS DE DEBUG
+// 🆕 Générer lien unique pour les clients - VERSION CORRIGÉE ANTI-DOUBLON
 router.post("/generer-lien/:entrepriseId", async (req, res) => {
   try {
     const { entrepriseId } = req.params;
@@ -212,28 +242,45 @@ router.post("/generer-lien/:entrepriseId", async (req, res) => {
 
     let entreprise;
     
-    // Gérer les IDs temporaires ET les ObjectIds
+    // 🔧 VERSION CORRIGÉE : Gérer les IDs temporaires ET les ObjectIds
     if (entrepriseId.startsWith('temp-')) {
       console.log("🏢 [DEBUG] ID temporaire détecté:", entrepriseId);
       
-      // Pour les IDs temporaires, chercher d'abord s'il existe
+      // Chercher d'abord s'il existe
       entreprise = await Entreprise.findOne({ tempId: entrepriseId });
       
       if (!entreprise) {
-        // Créer une nouvelle entreprise avec l'ID temporaire
-        entreprise = new Entreprise({
-          tempId: entrepriseId,
-          nom: "Entreprise temporaire",
-          email: "temp@example.com", // Champ requis
-          lienReservation: lienUnique,
-          dateCreation: new Date()
-        });
-        await entreprise.save();
-        console.log(`🆕 [DEBUG] Nouvelle entreprise temporaire créée:`, {
-          _id: entreprise._id,
-          tempId: entreprise.tempId,
-          nom: entreprise.nom
-        });
+        // Créer une nouvelle entreprise SEULEMENT si elle n'existe pas
+        try {
+          entreprise = new Entreprise({
+            tempId: entrepriseId,
+            nom: "Mon Entreprise de Transport", // 🔧 Nom plus professionnel
+            email: `contact-${Date.now()}@transport.com`, // 🔧 Email unique
+            lienReservation: lienUnique,
+            dateCreation: new Date()
+          });
+          await entreprise.save();
+          console.log(`🆕 [DEBUG] Nouvelle entreprise temporaire créée:`, {
+            _id: entreprise._id,
+            tempId: entreprise.tempId,
+            nom: entreprise.nom
+          });
+        } catch (saveError) {
+          if (saveError.code === 11000) {
+            // Si erreur de doublon, chercher l'entreprise existante
+            console.log("🔄 [DEBUG] Doublon détecté, recherche de l'entreprise existante");
+            entreprise = await Entreprise.findOne({ tempId: entrepriseId });
+            if (entreprise) {
+              entreprise.lienReservation = lienUnique;
+              await entreprise.save();
+              console.log("🔄 [DEBUG] Entreprise existante mise à jour");
+            } else {
+              throw new Error("Impossible de créer ou trouver l'entreprise");
+            }
+          } else {
+            throw saveError;
+          }
+        }
       } else {
         // Mettre à jour l'entreprise existante
         entreprise.lienReservation = lienUnique;
@@ -279,7 +326,7 @@ router.post("/generer-lien/:entrepriseId", async (req, res) => {
     res.status(200).json({
       message: "🔗 Lien généré avec succès !",
       lien: lienUnique,
-      entrepriseNom: entreprise.nom || "Entreprise"
+      entrepriseNom: entreprise.nom || "Mon Entreprise"
     });
   } catch (err) {
     console.error("❌ Erreur génération lien :", err);
@@ -290,7 +337,7 @@ router.post("/generer-lien/:entrepriseId", async (req, res) => {
   }
 });
 
-// 📌 Récupérer l'entreprise par lien unique - AVEC LOGS DE DEBUG
+// 📌 Récupérer l'entreprise par lien unique (pour le formulaire client)
 router.get("/client/:lienReservation", async (req, res) => {
   try {
     const { lienReservation } = req.params;
@@ -321,7 +368,7 @@ router.get("/client/:lienReservation", async (req, res) => {
     
     console.log(`📋 [DEBUG] ID utilisé pour les réservations: ${entrepriseIdForReservation}`);
 
-    // Retour d'une page HTML simple pour le client
+    // Retour d'une page HTML moderne pour le client
     const htmlForm = `
     <!DOCTYPE html>
     <html lang="fr">
@@ -330,139 +377,225 @@ router.get("/client/:lienReservation", async (req, res) => {
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>Réservation - ${entreprise.nom || 'Transport'}</title>
       <style>
+        * {
+          box-sizing: border-box;
+          margin: 0;
+          padding: 0;
+        }
+        
         body { 
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
-          max-width: 600px; 
-          margin: 50px auto; 
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', sans-serif;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          min-height: 100vh;
           padding: 20px;
-          background-color: #f8f9fa;
           line-height: 1.6;
         }
+        
         .container {
+          max-width: 600px;
+          margin: 0 auto;
           background: white;
-          padding: 30px;
-          border-radius: 12px;
-          box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+          border-radius: 20px;
+          padding: 40px;
+          box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+          position: relative;
+          overflow: hidden;
         }
+        
+        .container::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          height: 5px;
+          background: linear-gradient(90deg, #667eea, #764ba2);
+        }
+        
         .header {
           text-align: center;
-          margin-bottom: 30px;
-          border-bottom: 2px solid #007bff;
-          padding-bottom: 20px;
+          margin-bottom: 40px;
         }
+        
         .header h1 {
-          color: #007bff;
-          margin: 0 0 10px 0;
+          color: #2d3748;
+          font-size: 2.5rem;
+          margin-bottom: 10px;
+          font-weight: 700;
         }
+        
         .header h2 {
-          color: #343a40;
-          margin: 0 0 10px 0;
+          color: #667eea;
+          font-size: 1.5rem;
+          margin-bottom: 10px;
+          font-weight: 600;
         }
+        
+        .header p {
+          color: #718096;
+          font-size: 1.1rem;
+        }
+        
         .form-group {
-          margin-bottom: 20px;
+          margin-bottom: 25px;
         }
+        
+        .form-row {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 20px;
+        }
+        
         label {
           display: block;
-          margin-bottom: 5px;
+          margin-bottom: 8px;
           font-weight: 600;
-          color: #495057;
+          color: #2d3748;
+          font-size: 0.95rem;
         }
+        
+        .required { 
+          color: #e53e3e; 
+        }
+        
         input, textarea {
           width: 100%;
-          padding: 12px;
-          border: 2px solid #dee2e6;
-          border-radius: 8px;
+          padding: 15px;
+          border: 2px solid #e2e8f0;
+          border-radius: 12px;
           font-size: 16px;
-          box-sizing: border-box;
-          transition: border-color 0.3s ease;
+          transition: all 0.3s ease;
+          background: #f7fafc;
         }
+        
         input:focus, textarea:focus {
           outline: none;
-          border-color: #007bff;
-          box-shadow: 0 0 0 3px rgba(0,123,255,0.1);
+          border-color: #667eea;
+          background: white;
+          box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+          transform: translateY(-2px);
         }
-        .required { color: #dc3545; }
+        
         .submit-btn {
-          background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
           color: white;
-          padding: 15px 30px;
+          padding: 18px 40px;
           border: none;
-          border-radius: 8px;
-          font-size: 16px;
+          border-radius: 50px;
+          font-size: 18px;
           font-weight: 600;
           cursor: pointer;
           width: 100%;
-          margin-top: 20px;
-          transition: transform 0.2s ease;
+          margin-top: 30px;
+          transition: all 0.3s ease;
+          position: relative;
+          overflow: hidden;
         }
+        
         .submit-btn:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 4px 12px rgba(0,123,255,0.3);
+          transform: translateY(-3px);
+          box-shadow: 0 10px 25px rgba(102, 126, 234, 0.3);
         }
+        
         .submit-btn:disabled {
-          opacity: 0.6;
+          opacity: 0.7;
           cursor: not-allowed;
           transform: none;
         }
+        
         .success, .error {
-          padding: 15px;
-          border-radius: 8px;
-          margin: 20px 0;
+          padding: 20px;
+          border-radius: 12px;
+          margin: 25px 0;
           display: none;
           font-weight: 500;
+          text-align: center;
         }
+        
         .success {
-          background-color: #d4edda;
-          color: #155724;
-          border: 1px solid #c3e6cb;
+          background: linear-gradient(135deg, #48bb78, #38a169);
+          color: white;
+          border: none;
         }
+        
         .error {
-          background-color: #f8d7da;
-          color: #721c24;
-          border: 1px solid #f5c6cb;
+          background: linear-gradient(135deg, #f56565, #e53e3e);
+          color: white;
+          border: none;
         }
+        
         .loading {
           display: none;
           text-align: center;
-          color: #007bff;
+          color: #667eea;
+          font-weight: 600;
+          font-size: 1.1rem;
         }
-        .form-row {
-          display: flex;
-          gap: 15px;
+        
+        .loading::after {
+          content: '';
+          display: inline-block;
+          width: 20px;
+          height: 20px;
+          margin-left: 10px;
+          border: 2px solid #667eea;
+          border-radius: 50%;
+          border-top-color: transparent;
+          animation: spin 1s linear infinite;
         }
-        .form-row .form-group {
-          flex: 1;
+        
+        @keyframes spin {
+          to { transform: rotate(360deg); }
         }
-        .debug-info {
-          background: #f8f9fa;
-          padding: 10px;
-          border-radius: 5px;
-          font-size: 12px;
-          color: #666;
-          margin-bottom: 20px;
-        }
-        @media (max-width: 600px) {
+        
+        @media (max-width: 768px) {
+          body {
+            padding: 10px;
+          }
+          
+          .container {
+            padding: 25px;
+          }
+          
           .form-row {
-            flex-direction: column;
+            grid-template-columns: 1fr;
             gap: 0;
           }
+          
+          .header h1 {
+            font-size: 2rem;
+          }
+          
+          .header h2 {
+            font-size: 1.3rem;
+          }
+        }
+        
+        .debug-info {
+          background: #f7fafc;
+          padding: 15px;
+          border-radius: 8px;
+          font-size: 12px;
+          color: #718096;
+          margin-bottom: 25px;
+          border-left: 4px solid #667eea;
         }
       </style>
     </head>
     <body>
       <div class="container">
         <div class="header">
-          <h1>🚗 Réservation de transport</h1>
-          <h2>${entreprise.nom || 'Service de transport'}</h2>
-          <p>Remplissez le formulaire ci-dessous pour faire votre demande de réservation</p>
+          <h1>🚗</h1>
+          <h2>${entreprise.nom || 'Service de Transport'}</h2>
+          <p>Remplissez le formulaire pour votre demande de réservation</p>
         </div>
 
         <div class="debug-info">
-          🔧 Debug Info: Entreprise ID = ${entrepriseIdForReservation}
+          🔧 Référence: ${entrepriseIdForReservation}
         </div>
 
         <div id="successMessage" class="success">
-          ✅ Votre demande de réservation a été envoyée avec succès ! Nous vous recontacterons rapidement.
+          ✅ Votre demande a été envoyée avec succès ! Nous vous recontacterons rapidement.
         </div>
 
         <div id="errorMessage" class="error">
@@ -470,7 +603,7 @@ router.get("/client/:lienReservation", async (req, res) => {
         </div>
 
         <div id="loadingMessage" class="loading">
-          ⏳ Envoi en cours...
+          Envoi en cours...
         </div>
 
         <form id="reservationForm">
@@ -518,8 +651,8 @@ router.get("/client/:lienReservation", async (req, res) => {
           </div>
 
           <div class="form-group">
-            <label for="description">Description (optionnel)</label>
-            <textarea id="description" name="description" rows="3" placeholder="Informations supplémentaires (nombre de passagers, bagages, etc.)"></textarea>
+            <label for="description">Informations complémentaires</label>
+            <textarea id="description" name="description" rows="3" placeholder="Nombre de passagers, bagages, instructions spéciales..."></textarea>
           </div>
 
           <button type="submit" class="submit-btn">📩 Envoyer ma demande</button>
@@ -527,7 +660,7 @@ router.get("/client/:lienReservation", async (req, res) => {
       </div>
 
       <script>
-        console.log("🔧 [CLIENT DEBUG] Entreprise ID qui sera envoyé:", "${entrepriseIdForReservation}");
+        console.log("🔧 [CLIENT DEBUG] Entreprise ID:", "${entrepriseIdForReservation}");
 
         document.getElementById('reservationForm').addEventListener('submit', async function(e) {
           e.preventDefault();
@@ -545,7 +678,7 @@ router.get("/client/:lienReservation", async (req, res) => {
           
           const formData = new FormData(this);
           const data = Object.fromEntries(formData);
-          data.entrepriseId = "${entrepriseIdForReservation}"; // Ajouter l'ID de l'entreprise
+          data.entrepriseId = "${entrepriseIdForReservation}";
           
           console.log("🔧 [CLIENT DEBUG] Données envoyées:", data);
           
@@ -561,28 +694,39 @@ router.get("/client/:lienReservation", async (req, res) => {
             loadingMsg.style.display = 'none';
             
             const responseData = await response.json();
-            console.log("🔧 [CLIENT DEBUG] Réponse serveur:", responseData);
+            console.log("🔧 [CLIENT DEBUG] Réponse:", responseData);
             
             if (response.ok) {
               successMsg.style.display = 'block';
               this.reset();
               successMsg.scrollIntoView({ behavior: 'smooth' });
             } else {
-              throw new Error('Erreur lors de l\\'envoi: ' + responseData.message);
+              throw new Error(responseData.message || 'Erreur lors de l\\'envoi');
             }
           } catch (error) {
             console.error("❌ [CLIENT DEBUG] Erreur:", error);
             loadingMsg.style.display = 'none';
             errorMsg.style.display = 'block';
-            errorMsg.innerHTML = "❌ Erreur: " + error.message;
+            errorMsg.innerHTML = "❌ " + error.message;
             errorMsg.scrollIntoView({ behavior: 'smooth' });
           } finally {
             submitBtn.disabled = false;
           }
         });
 
-        // Définir la date minimale à aujourd'hui
+        // Date minimale = aujourd'hui
         document.getElementById('date').min = new Date().toISOString().split('T')[0];
+        
+        // Validation visuelle
+        document.querySelectorAll('input[required]').forEach(input => {
+          input.addEventListener('blur', function() {
+            if (!this.value.trim()) {
+              this.style.borderColor = '#e53e3e';
+            } else {
+              this.style.borderColor = '#48bb78';
+            }
+          });
+        });
       </script>
     </body>
     </html>
@@ -598,7 +742,7 @@ router.get("/client/:lienReservation", async (req, res) => {
   }
 });
 
-// 📌 Soumission du formulaire client - AVEC LOGS DE DEBUG COMPLETS
+// 📌 Soumission du formulaire client - VERSION CORRIGÉE
 router.post("/client/:lienReservation", async (req, res) => {
   const {
     nom,
@@ -610,7 +754,7 @@ router.post("/client/:lienReservation", async (req, res) => {
     date,
     heure,
     description,
-    entrepriseId, // Récupéré du formulaire HTML
+    entrepriseId,
   } = req.body;
 
   console.log("📝 [DEBUG] Soumission formulaire client:", {
@@ -704,6 +848,68 @@ router.post("/client/:lienReservation", async (req, res) => {
   }
 });
 
+// 🧹 Route de nettoyage de la base de données (À SUPPRIMER après utilisation)
+router.post("/admin/cleanup", async (req, res) => {
+  try {
+    console.log("🧹 [DEBUG] Démarrage nettoyage base de données");
+    
+    // Supprimer toutes les entreprises avec lienReservation null ou undefined
+    const deletedEntreprises = await Entreprise.deleteMany({ 
+      $or: [
+        { lienReservation: null },
+        { lienReservation: { $exists: false } }
+      ]
+    });
+    
+    // Supprimer les doublons d'entreprises temporaires
+    const duplicateEntreprises = await Entreprise.aggregate([
+      {
+        $match: {
+          tempId: { $exists: true, $ne: null }
+        }
+      },
+      {
+        $group: {
+          _id: "$tempId",
+          count: { $sum: 1 },
+          docs: { $push: "$_id" }
+        }
+      },
+      {
+        $match: {
+          count: { $gt: 1 }
+        }
+      }
+    ]);
+    
+    let deletedDuplicates = 0;
+    for (const group of duplicateEntreprises) {
+      // Garder le premier, supprimer les autres
+      const toDelete = group.docs.slice(1);
+      await Entreprise.deleteMany({ _id: { $in: toDelete } });
+      deletedDuplicates += toDelete.length;
+    }
+    
+    console.log("🧹 [DEBUG] Nettoyage terminé:", {
+      entreprisesAvecLienNull: deletedEntreprises.deletedCount,
+      doublonsSupprimés: deletedDuplicates
+    });
+    
+    res.json({
+      message: "🧹 Nettoyage terminé avec succès",
+      entreprisesAvecLienNull: deletedEntreprises.deletedCount,
+      doublonsSupprimés: deletedDuplicates,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error("❌ Erreur nettoyage:", err);
+    res.status(500).json({ 
+      error: "Erreur lors du nettoyage",
+      message: err.message 
+    });
+  }
+});
+
 // 🐛 Route de debug temporaire
 router.get("/debug/all", async (req, res) => {
   try {
@@ -727,7 +933,8 @@ router.get("/debug/all", async (req, res) => {
         _id: e._id,
         tempId: e.tempId,
         nom: e.nom,
-        lienReservation: e.lienReservation
+        lienReservation: e.lienReservation,
+        email: e.email
       }))
     });
   } catch (err) {
