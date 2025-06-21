@@ -4,6 +4,10 @@ const Planning = require("../models/Planning");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+const crypto = require("crypto"); // Pour générer des tokens uniques
+
+// Stockage temporaire des liens de partage (en production, utilisez Redis ou une DB)
+const shareLinks = new Map();
 
 // Fonction utilitaire pour échapper les caractères spéciaux regex
 function escapeRegExp(string) {
@@ -96,7 +100,7 @@ router.post("/", async (req, res) => {
   try {
     console.log("📝 POST /planning - Création d'une nouvelle course");
     
-    const { nom, prenom, depart, arrive, heure, date, description, color, entrepriseId } = req.body;
+    const { nom, prenom, depart, arrive, heure, date, description, color, entrepriseId, telephone } = req.body;
 
     // Validation des données d'entrée
     const validationErrors = validateInputData(req.body);
@@ -133,6 +137,7 @@ router.post("/", async (req, res) => {
       
       // Champs optionnels
       description: description ? description.trim() : "",
+      telephone: telephone ? telephone.trim() : "",
       color: color || "#5E35B1",
       
       // Valeurs par défaut système
@@ -223,6 +228,7 @@ router.get("/", async (req, res) => {
       name: `${course.prenom || ''} ${course.nom || ''}`.trim() || 'Client sans nom',
       pieceJointe: Array.isArray(course.pieceJointe) ? course.pieceJointe : [],
       description: course.description || '',
+      telephone: course.telephone || '',
     }));
 
     console.log(`✅ ${coursesFormatted.length} courses récupérées`);
@@ -284,6 +290,7 @@ router.get("/chauffeur/:chauffeurNom", async (req, res) => {
       name: `${course.prenom || ''} ${course.nom || ''}`.trim() || 'Client sans nom',
       pieceJointe: Array.isArray(course.pieceJointe) ? course.pieceJointe : [],
       description: course.description || '',
+      telephone: course.telephone || '',
       depart: course.depart || 'Adresse de départ non spécifiée',
       arrive: course.arrive || 'Adresse d\'arrivée non spécifiée'
     }));
@@ -299,6 +306,177 @@ router.get("/chauffeur/:chauffeurNom", async (req, res) => {
     }
     
     res.status(500).json({ error: "Erreur lors de la récupération du planning" });
+  }
+});
+
+// ✅ NOUVELLE ROUTE : PARTAGER UNE COURSE
+router.post("/share/:id", async (req, res) => {
+  try {
+    const { senderEntrepriseId, courseData } = req.body;
+    
+    if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ error: "ID de course invalide" });
+    }
+
+    console.log("🔗 POST /planning/share - Création lien de partage:", req.params.id);
+
+    // Vérifier que la course existe
+    const course = await Planning.findById(req.params.id);
+    if (!course) {
+      return res.status(404).json({ error: "Course non trouvée" });
+    }
+
+    // Vérifier que l'entreprise est bien propriétaire
+    if (course.entrepriseId.toString() !== senderEntrepriseId) {
+      return res.status(403).json({ error: "Non autorisé à partager cette course" });
+    }
+
+    // Générer un token unique
+    const shareToken = crypto.randomBytes(32).toString('hex');
+    
+    // Stocker les informations du partage (en production, utilisez Redis ou MongoDB)
+    const shareData = {
+      courseId: req.params.id,
+      courseData: courseData || {
+        nom: course.nom,
+        prenom: course.prenom,
+        depart: course.depart,
+        arrive: course.arrive,
+        date: course.date,
+        heure: course.heure,
+        description: course.description,
+        telephone: course.telephone || '',
+      },
+      senderEntrepriseId,
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // Expire dans 24h
+    };
+
+    shareLinks.set(shareToken, shareData);
+
+    // Nettoyer les liens expirés
+    for (const [token, data] of shareLinks.entries()) {
+      if (new Date(data.expiresAt) < new Date()) {
+        shareLinks.delete(token);
+      }
+    }
+
+    console.log("✅ Lien de partage créé avec succès");
+    res.status(200).json({ 
+      shareToken,
+      expiresAt: shareData.expiresAt,
+      message: "Lien de partage créé avec succès"
+    });
+
+  } catch (err) {
+    console.error("❌ Erreur création lien de partage :", err);
+    res.status(500).json({ error: "Erreur lors de la création du lien de partage" });
+  }
+});
+
+// ✅ NOUVELLE ROUTE : ACCEPTER UNE COURSE PARTAGÉE
+router.post("/accept-shared", async (req, res) => {
+  try {
+    const { shareToken, accepterEntrepriseId, accepterUserId } = req.body;
+
+    if (!shareToken) {
+      return res.status(400).json({ error: "Token de partage requis" });
+    }
+
+    console.log("🤝 POST /planning/accept-shared - Acceptation course partagée");
+
+    // Récupérer les données du partage
+    const shareData = shareLinks.get(shareToken);
+    
+    if (!shareData) {
+      return res.status(404).json({ error: "Lien de partage invalide ou expiré" });
+    }
+
+    // Vérifier l'expiration
+    if (new Date(shareData.expiresAt) < new Date()) {
+      shareLinks.delete(shareToken);
+      return res.status(404).json({ error: "Lien de partage expiré" });
+    }
+
+    // Vérifier si la course n'a pas déjà été acceptée
+    const existingCourse = await Planning.findOne({
+      nom: shareData.courseData.nom,
+      prenom: shareData.courseData.prenom,
+      date: shareData.courseData.date,
+      heure: shareData.courseData.heure,
+      entrepriseId: accepterEntrepriseId
+    });
+
+    if (existingCourse) {
+      return res.status(409).json({ error: "Cette course existe déjà dans votre planning" });
+    }
+
+    // Créer la nouvelle course pour l'entreprise acceptante
+    const newCourse = new Planning({
+      ...shareData.courseData,
+      entrepriseId: accepterEntrepriseId,
+      statut: "En attente",
+      chauffeur: "",
+      color: "#6C63FF", // Couleur par défaut
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      // Ajouter une référence à la course originale si nécessaire
+      sharedFrom: shareData.senderEntrepriseId,
+      originalCourseId: shareData.courseId
+    });
+
+    const savedCourse = await newCourse.save();
+
+    // Supprimer le lien de partage après utilisation
+    shareLinks.delete(shareToken);
+
+    console.log("✅ Course partagée acceptée et ajoutée au planning");
+    res.status(201).json({
+      message: "Course ajoutée à votre planning avec succès",
+      course: savedCourse
+    });
+
+  } catch (err) {
+    console.error("❌ Erreur acceptation course partagée :", err);
+    
+    if (err.name === 'ValidationError') {
+      const errors = Object.values(err.errors).map(e => e.message);
+      return res.status(400).json({ error: "Erreurs de validation", details: errors });
+    }
+    
+    res.status(500).json({ error: "Erreur lors de l'acceptation de la course" });
+  }
+});
+
+// ✅ NOUVELLE ROUTE : OBTENIR LES DÉTAILS D'UN LIEN DE PARTAGE
+router.get("/share-info/:token", async (req, res) => {
+  try {
+    const { token } = req.params;
+
+    console.log("📋 GET /planning/share-info - Infos sur lien de partage");
+
+    const shareData = shareLinks.get(token);
+    
+    if (!shareData) {
+      return res.status(404).json({ error: "Lien de partage invalide ou expiré" });
+    }
+
+    // Vérifier l'expiration
+    if (new Date(shareData.expiresAt) < new Date()) {
+      shareLinks.delete(token);
+      return res.status(404).json({ error: "Lien de partage expiré" });
+    }
+
+    // Ne pas exposer toutes les données, juste ce qui est nécessaire
+    res.status(200).json({
+      courseData: shareData.courseData,
+      expiresAt: shareData.expiresAt,
+      senderEntrepriseId: shareData.senderEntrepriseId
+    });
+
+  } catch (err) {
+    console.error("❌ Erreur récupération infos partage :", err);
+    res.status(500).json({ error: "Erreur lors de la récupération des informations" });
   }
 });
 
@@ -497,7 +675,7 @@ router.put("/:id", async (req, res) => {
 
     const allowedUpdates = [
       'nom', 'prenom', 'depart', 'arrive', 'date', 'heure', 
-      'statut', 'chauffeur', 'color', 'description'
+      'statut', 'chauffeur', 'color', 'description', 'telephone'
     ];
     
     const updates = {};
@@ -718,6 +896,7 @@ router.get("/terminees", async (req, res) => {
       name: `${course.prenom || ''} ${course.nom || ''}`.trim() || 'Client sans nom',
       pieceJointe: Array.isArray(course.pieceJointe) ? course.pieceJointe : [],
       description: course.description || '',
+      telephone: course.telephone || '',
       prix: course.prix || 0
     }));
 
@@ -809,7 +988,8 @@ router.get("/course/:id", async (req, res) => {
       ...course,
       name: `${course.prenom || ''} ${course.nom || ''}`.trim() || 'Client sans nom',
       pieceJointe: Array.isArray(course.pieceJointe) ? course.pieceJointe : [],
-      description: course.description || ''
+      description: course.description || '',
+      telephone: course.telephone || ''
     };
     
     console.log("✅ Détails récupérés");
