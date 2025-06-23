@@ -1,11 +1,10 @@
 // models/User.js
-
 const mongoose = require("mongoose");
 
 const userSchema = new mongoose.Schema({
   name: {
     type: String,
-    required: true,                // ex. "Jean Dupont"
+    required: true,
     trim: true,
   },
   email: {
@@ -21,32 +20,43 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ["chauffeur", "admin", "patron"],  // seuls ces trois rôles sont autorisés
-    default: "chauffeur",
-    required: true,
+    enum: ["patron", "chauffeur"],
+    default: "patron",
   },
   entrepriseId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Entreprise",
+    default: null,
+  },
+  // Nouveaux champs pour la vérification d'email
+  emailVerified: {
+    type: Boolean,
+    default: false,
+  },
+  verificationToken: {
     type: String,
-    default: null,
+    default: undefined,
   },
-  // ─── Champs de géolocalisation ───
-  latitude: {
-    type: Number,
-    default: null,
-  },
-  longitude: {
-    type: Number,
-    default: null,
-  },
-  updatedAt: {
+  verificationTokenExpires: {
     type: Date,
-    default: null,
+    default: undefined,
   },
-
-  createdAt: {
+  // Nouveaux champs pour la réinitialisation du mot de passe
+  resetPasswordToken: {
+    type: String,
+    default: undefined,
+  },
+  resetPasswordExpires: {
     type: Date,
-    default: Date.now,
+    default: undefined,
   },
+}, {
+  timestamps: true,
 });
+
+// Index pour améliorer les performances
+userSchema.index({ email: 1 });
+userSchema.index({ verificationToken: 1 });
+userSchema.index({ resetPasswordToken: 1 });
 
 module.exports = mongoose.model("User", userSchema);
