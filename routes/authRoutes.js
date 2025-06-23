@@ -11,20 +11,11 @@ dotenv.config();
 
 // Configuration du transporteur d'email
 const transporter = nodemailer.createTransport({
-  // Option 1: Gmail
   service: 'gmail',
   auth: {
     user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS // Mot de passe d'application si 2FA activé
+    pass: process.env.EMAIL_PASS
   }
-  
-  // Option 2: SendGrid
-  // host: 'smtp.sendgrid.net',
-  // port: 587,
-  // auth: {
-  //   user: 'apikey',
-  //   pass: process.env.SENDGRID_API_KEY
-  // }
 });
 
 // Vérifier la configuration email au démarrage
@@ -32,11 +23,16 @@ transporter.verify((error, success) => {
   if (error) {
     console.error('❌ Erreur configuration email:', error);
   } else {
-    console.log('✅ Serveur email prêt à envoyer des messages');
+    console.log('✅ Serveur email prêt');
   }
 });
 
-// ✅ Inscription avec envoi d'email de vérification
+// Fonction pour générer un code à 6 chiffres
+const generateVerificationCode = () => {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+};
+
+// ✅ Inscription avec code de vérification simple
 router.post("/register", async (req, res) => {
   try {
     const { name, email, password, code } = req.body;
@@ -66,9 +62,9 @@ router.post("/register", async (req, res) => {
     
     const hashedPassword = await bcrypt.hash(password, 10);
     
-    // Générer un token de vérification
-    const verificationToken = crypto.randomBytes(32).toString('hex');
-    const verificationTokenExpires = Date.now() + 24 * 60 * 60 * 1000; // 24 heures
+    // Générer un code de vérification simple à 6 chiffres
+    const verificationCode = generateVerificationCode();
+    const verificationCodeExpires = Date.now() + 15 * 60 * 1000; // 15 minutes
     
     const newUser = new User({
       name,
@@ -77,43 +73,53 @@ router.post("/register", async (req, res) => {
       role,
       entrepriseId,
       emailVerified: false,
-      verificationToken,
-      verificationTokenExpires
+      verificationToken: verificationCode, // On utilise le même champ pour stocker le code
+      verificationTokenExpires: verificationCodeExpires
     });
     
     await newUser.save();
     
-    // Envoyer l'email de vérification
-    // URL pour Expo en développement
-    const verificationUrl = `exp://localhost:19000/--/verify-email?token=${verificationToken}`;
-    
-    await transporter.sendMail({
-      from: process.env.EMAIL_FROM || 'FastPlan <noreply@fastplan.com>',
-      to: email,
-      subject: '✅ Vérifiez votre adresse email - FastPlan',
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #6C63FF;">Bienvenue sur FastPlan !</h2>
-          <p>Bonjour ${name},</p>
-          <p>Merci de vous être inscrit. Pour activer votre compte, veuillez vérifier votre adresse email en cliquant sur le bouton ci-dessous :</p>
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="${verificationUrl}" 
-               style="background-color: #6C63FF; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">
-              Vérifier mon email
-            </a>
+    // Envoyer l'email avec le code
+    try {
+      await transporter.sendMail({
+        from: process.env.EMAIL_FROM || 'FastPlan <noreply@fastplan.com>',
+        to: email,
+        subject: `${verificationCode} - Votre code de vérification FastPlan`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <div style="text-align: center; margin-bottom: 30px;">
+              <h1 style="color: #6C63FF; margin-bottom: 10px;">FastPlan</h1>
+              <h2 style="color: #333; font-weight: normal;">Vérification de votre email</h2>
+            </div>
+            
+            <div style="background-color: #f5f5f5; border-radius: 10px; padding: 30px; text-align: center;">
+              <p style="color: #666; margin-bottom: 20px;">Votre code de vérification est :</p>
+              <div style="background-color: #6C63FF; color: white; font-size: 32px; font-weight: bold; padding: 20px; border-radius: 10px; letter-spacing: 5px;">
+                ${verificationCode}
+              </div>
+              <p style="color: #999; margin-top: 20px; font-size: 14px;">Ce code expire dans 15 minutes</p>
+            </div>
+            
+            <p style="color: #666; margin-top: 30px; text-align: center;">
+              Si vous n'avez pas créé de compte FastPlan, ignorez cet email.
+            </p>
           </div>
-          <p>Ou copiez et collez ce lien dans votre navigateur :</p>
-          <p style="word-break: break-all; color: #666;">${verificationUrl}</p>
-          <p style="color: #666; font-size: 14px;">Ce lien expirera dans 24 heures.</p>
-          <hr style="border: 1px solid #eee; margin: 30px 0;">
-          <p style="color: #666; font-size: 12px;">Si vous n'avez pas créé de compte, ignorez cet email.</p>
-        </div>
-      `
-    });
+        `
+      });
+      
+      console.log(`✅ Code de vérification envoyé à ${email}: ${verificationCode}`);
+    } catch (emailError) {
+      console.error("❌ Erreur envoi email:", emailError);
+      // On supprime l'utilisateur si l'email n'a pas pu être envoyé
+      await User.findByIdAndDelete(newUser._id);
+      return res.status(500).json({ 
+        message: "❌ Impossible d'envoyer l'email de vérification. Veuillez réessayer." 
+      });
+    }
     
     res.status(201).json({ 
-      message: "✅ Inscription réussie ! Vérifiez votre email pour activer votre compte.",
-      emailSent: true 
+      message: "✅ Inscription réussie ! Un code de vérification a été envoyé à votre email.",
+      email: email // On renvoie l'email pour le pré-remplir dans l'écran suivant
     });
     
   } catch (error) {
@@ -122,18 +128,23 @@ router.post("/register", async (req, res) => {
   }
 });
 
-// ✅ Vérification de l'email
-router.get("/verify-email/:token", async (req, res) => {
+// ✅ Vérifier le code à 6 chiffres
+router.post("/verify-code", async (req, res) => {
   try {
-    const { token } = req.params;
+    const { email, code } = req.body;
+    
+    if (!email || !code) {
+      return res.status(400).json({ message: "⚠️ Email et code requis." });
+    }
     
     const user = await User.findOne({
-      verificationToken: token,
+      email: email.toLowerCase(),
+      verificationToken: code,
       verificationTokenExpires: { $gt: Date.now() }
     });
     
     if (!user) {
-      return res.status(400).json({ message: "❌ Token invalide ou expiré." });
+      return res.status(400).json({ message: "❌ Code invalide ou expiré." });
     }
     
     user.emailVerified = true;
@@ -141,16 +152,18 @@ router.get("/verify-email/:token", async (req, res) => {
     user.verificationTokenExpires = undefined;
     await user.save();
     
-    res.status(200).json({ message: "✅ Email vérifié avec succès !" });
+    res.status(200).json({ 
+      message: "✅ Email vérifié avec succès ! Vous pouvez maintenant vous connecter." 
+    });
     
   } catch (error) {
-    console.error("❌ Erreur vérification email :", error);
+    console.error("❌ Erreur vérification code :", error);
     res.status(500).json({ message: "❌ Erreur serveur." });
   }
 });
 
-// ✅ Renvoyer l'email de vérification
-router.post("/resend-verification", async (req, res) => {
+// ✅ Renvoyer le code de vérification
+router.post("/resend-code", async (req, res) => {
   try {
     const { email } = req.body;
     
@@ -163,47 +176,46 @@ router.post("/resend-verification", async (req, res) => {
       return res.status(400).json({ message: "ℹ️ Email déjà vérifié." });
     }
     
-    // Générer un nouveau token
-    const verificationToken = crypto.randomBytes(32).toString('hex');
-    const verificationTokenExpires = Date.now() + 24 * 60 * 60 * 1000;
+    // Générer un nouveau code
+    const verificationCode = generateVerificationCode();
+    const verificationCodeExpires = Date.now() + 15 * 60 * 1000;
     
-    user.verificationToken = verificationToken;
-    user.verificationTokenExpires = verificationTokenExpires;
+    user.verificationToken = verificationCode;
+    user.verificationTokenExpires = verificationCodeExpires;
     await user.save();
     
     // Renvoyer l'email
-    // URL pour Expo en développement
-    const verificationUrl = `exp://localhost:19000/--/verify-email?token=${verificationToken}`;
-    
     await transporter.sendMail({
       from: process.env.EMAIL_FROM || 'FastPlan <noreply@fastplan.com>',
       to: email,
-      subject: '✅ Vérifiez votre adresse email - FastPlan',
+      subject: `${verificationCode} - Nouveau code de vérification FastPlan`,
       html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #6C63FF;">Vérifiez votre email</h2>
-          <p>Bonjour ${user.name},</p>
-          <p>Cliquez sur le lien ci-dessous pour vérifier votre adresse email :</p>
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="${verificationUrl}" 
-               style="background-color: #6C63FF; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">
-              Vérifier mon email
-            </a>
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="text-align: center; margin-bottom: 30px;">
+            <h1 style="color: #6C63FF; margin-bottom: 10px;">FastPlan</h1>
+            <h2 style="color: #333; font-weight: normal;">Nouveau code de vérification</h2>
           </div>
-          <p style="color: #666; font-size: 14px;">Ce lien expirera dans 24 heures.</p>
+          
+          <div style="background-color: #f5f5f5; border-radius: 10px; padding: 30px; text-align: center;">
+            <p style="color: #666; margin-bottom: 20px;">Votre nouveau code est :</p>
+            <div style="background-color: #6C63FF; color: white; font-size: 32px; font-weight: bold; padding: 20px; border-radius: 10px; letter-spacing: 5px;">
+              ${verificationCode}
+            </div>
+            <p style="color: #999; margin-top: 20px; font-size: 14px;">Ce code expire dans 15 minutes</p>
+          </div>
         </div>
       `
     });
     
-    res.status(200).json({ message: "✅ Email de vérification renvoyé." });
+    res.status(200).json({ message: "✅ Nouveau code envoyé !" });
     
   } catch (error) {
-    console.error("❌ Erreur renvoi email :", error);
+    console.error("❌ Erreur renvoi code :", error);
     res.status(500).json({ message: "❌ Erreur serveur." });
   }
 });
 
-// ✅ Connexion (modifié pour vérifier l'email)
+// ✅ Connexion (vérifie si l'email est validé)
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -221,7 +233,8 @@ router.post("/login", async (req, res) => {
     if (!user.emailVerified) {
       return res.status(401).json({ 
         message: "❌ Veuillez vérifier votre email avant de vous connecter.",
-        emailNotVerified: true 
+        emailNotVerified: true,
+        email: email 
       });
     }
     
@@ -253,6 +266,9 @@ router.post("/login", async (req, res) => {
     res.status(500).json({ message: "❌ Erreur serveur pendant la connexion." });
   }
 });
+
+// ✅ Le reste du code reste identique (forgot-password, reset-password, etc.)
+// ...
 
 // ✅ Demande de réinitialisation du mot de passe
 router.post("/forgot-password", async (req, res) => {
