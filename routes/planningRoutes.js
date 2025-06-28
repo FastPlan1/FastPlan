@@ -5,6 +5,7 @@ const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
+const mongoose = require("mongoose");
 const moment = require("moment");
 
 // Stockage temporaire des liens de partage (en production, utilisez Redis ou une DB)
@@ -62,93 +63,82 @@ function validateInputData(data) {
   return errors;
 }
 
-// 🆕 Fonction pour valider les données de récurrence
-function validateRecurrenceData(data) {
-  const errors = [];
-  
-  if (!data.frequency || !['daily', 'weekly', 'monthly'].includes(data.frequency)) {
-    errors.push("Fréquence de récurrence invalide");
-  }
-  
-  if (!data.endType || !['date', 'occurrences', 'never'].includes(data.endType)) {
-    errors.push("Type de fin de récurrence invalide");
-  }
-  
-  if (data.endType === 'date' && !data.endDate) {
-    errors.push("Date de fin requise");
-  }
-  
-  if (data.endType === 'date' && data.endDate) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(data.endDate)) {
-      errors.push("Format de date de fin invalide");
-    }
-  }
-  
-  if (data.endType === 'occurrences' && (!data.occurrences || data.occurrences < 1)) {
-    errors.push("Nombre d'occurrences invalide");
-  }
-  
-  if (data.frequency === 'weekly' && (!data.weekDays || !Array.isArray(data.weekDays) || data.weekDays.length === 0)) {
-    errors.push("Jours de la semaine requis pour une récurrence hebdomadaire");
-  }
-  
-  return errors;
-}
-
-// 🆕 Fonction pour générer les dates de récurrence
-function generateRecurrenceDates(startDate, recurrenceData) {
+// Fonction pour générer les dates de récurrence
+function generateRecurringDates(startDate, recurrence) {
   const dates = [];
-  const maxOccurrences = 365; // Limite de sécurité
+  const start = moment(startDate);
   
-  let currentDate = moment(startDate);
-  let count = 0;
-  
-  // Définir la date de fin selon le type
-  let endDate = null;
-  if (recurrenceData.endType === 'date') {
-    endDate = moment(recurrenceData.endDate);
-  } else if (recurrenceData.endType === 'never') {
-    // Limiter à 1 an pour éviter les boucles infinies
-    endDate = moment(startDate).add(1, 'year');
+  // Déterminer la date de fin selon le type
+  let endDate;
+  switch (recurrence.endType) {
+    case 'date':
+      endDate = moment(recurrence.endDate);
+      break;
+    case 'duration':
+      const { value, unit } = recurrence.duration;
+      endDate = moment(start).add(value, unit);
+      break;
+    case 'indefinite':
+      // Limiter à 2 ans pour éviter de créer trop d'entrées
+      endDate = moment(start).add(2, 'years');
+      break;
+    case 'occurrences':
+      // On va calculer au fur et à mesure
+      endDate = null;
+      break;
+    default:
+      return dates;
   }
   
-  while (count < maxOccurrences) {
-    // Vérifier les conditions d'arrêt
-    if (recurrenceData.endType === 'occurrences' && count >= recurrenceData.occurrences) {
-      break;
+  let current = moment(start);
+  let occurrenceCount = 0;
+  const maxOccurrences = recurrence.endType === 'occurrences' ? recurrence.occurrences : 1000;
+  
+  while (occurrenceCount < maxOccurrences) {
+    // Si on a une date de fin et qu'on l'a dépassée, on arrête
+    if (endDate && current.isAfter(endDate)) break;
+    
+    // Ajouter la date selon la fréquence
+    switch (recurrence.frequency) {
+      case 'quotidien':
+        dates.push(current.format('YYYY-MM-DD'));
+        current.add(1, 'day');
+        break;
+        
+      case 'hebdomadaire':
+        // Pour hebdomadaire, on génère pour chaque jour de la semaine sélectionné
+        if (recurrence.daysOfWeek && recurrence.daysOfWeek.length > 0) {
+          const weekStart = moment(current).startOf('week');
+          for (let dayOfWeek of recurrence.daysOfWeek) {
+            const targetDate = moment(weekStart).day(dayOfWeek);
+            if (targetDate.isSameOrAfter(start) && (!endDate || targetDate.isSameOrBefore(endDate))) {
+              dates.push(targetDate.format('YYYY-MM-DD'));
+              occurrenceCount++;
+              if (recurrence.endType === 'occurrences' && occurrenceCount >= maxOccurrences) break;
+            }
+          }
+        }
+        current.add(1, 'week');
+        break;
+        
+      case 'mensuel':
+        // Pour mensuel, on prend le jour du mois spécifié
+        const dayOfMonth = recurrence.dayOfMonth || start.date();
+        const targetMonthDate = moment(current).date(Math.min(dayOfMonth, current.daysInMonth()));
+        if (targetMonthDate.isSameOrAfter(start) && (!endDate || targetMonthDate.isSameOrBefore(endDate))) {
+          dates.push(targetMonthDate.format('YYYY-MM-DD'));
+          occurrenceCount++;
+        }
+        current.add(1, 'month');
+        break;
     }
     
-    if (endDate && currentDate.isAfter(endDate)) {
-      break;
-    }
-    
-    // Ajouter la date si elle correspond aux critères
-    if (recurrenceData.frequency === 'weekly') {
-      const dayOfWeek = currentDate.day();
-      if (recurrenceData.weekDays.includes(dayOfWeek)) {
-        dates.push(currentDate.format('YYYY-MM-DD'));
-        count++;
-      }
-    } else {
-      dates.push(currentDate.format('YYYY-MM-DD'));
-      count++;
-    }
-    
-    // Incrémenter la date
-    switch (recurrenceData.frequency) {
-      case 'daily':
-        currentDate.add(1, 'day');
-        break;
-      case 'weekly':
-        currentDate.add(1, 'day');
-        break;
-      case 'monthly':
-        currentDate.add(1, 'month');
-        break;
-    }
+    // Sécurité pour éviter les boucles infinies
+    if (dates.length > 1000) break;
   }
   
-  return dates;
+  // Retourner uniquement les dates uniques et triées
+  return [...new Set(dates)].sort();
 }
 
 // 📦 Configuration de Multer pour les fichiers joints (optionnel)
@@ -185,12 +175,12 @@ const upload = multer({
 
 // ==================== ROUTES ====================
 
-// ✅ AJOUTER UNE COURSE (SIMPLIFIÉE)
+// ✅ AJOUTER UNE COURSE (AVEC SUPPORT RÉCURRENCE)
 router.post("/", async (req, res) => {
   try {
     console.log("📝 POST /planning - Création d'une nouvelle course");
     
-    const { nom, prenom, depart, arrive, heure, date, description, color, entrepriseId, telephone } = req.body;
+    const { nom, prenom, depart, arrive, heure, date, description, color, entrepriseId, telephone, recurrence } = req.body;
 
     // Validation des données d'entrée
     const validationErrors = validateInputData(req.body);
@@ -214,46 +204,86 @@ router.post("/", async (req, res) => {
       return res.status(400).json({ error: "Format de date ou heure invalide" });
     }
 
-    // ✅ CRÉATION DE LA COURSE AVEC CHAMPS ESSENTIELS SEULEMENT
-    const newCourse = new Planning({
-      // Champs requis
-      nom: nom.trim(),
-      prenom: prenom.trim(),
-      depart: depart.trim(),
-      arrive: arrive.trim(),
-      date,
-      heure,
-      entrepriseId,
+    // Si c'est une course récurrente
+    if (recurrence && recurrence.enabled) {
+      console.log("🔄 Création de courses récurrentes");
       
-      // Champs optionnels
-      description: description ? description.trim() : "",
-      telephone: telephone ? telephone.trim() : "",
-      color: color || "#5E35B1",
+      // Générer un ID de groupe pour lier toutes les courses récurrentes
+      const recurrenceGroupId = new mongoose.Types.ObjectId();
       
-      // Valeurs par défaut système
-      statut: "En attente",
-      chauffeur: "",
-      pieceJointe: [],
-      createdAt: new Date(),
-      updatedAt: new Date()
-    });
+      // Générer toutes les dates de récurrence
+      const recurringDates = generateRecurringDates(date, recurrence);
+      console.log(`📅 ${recurringDates.length} dates générées pour la récurrence`);
+      
+      // Créer toutes les courses récurrentes
+      const coursesToCreate = recurringDates.map(courseDate => ({
+        nom: nom.trim(),
+        prenom: prenom.trim(),
+        depart: depart.trim(),
+        arrive: arrive.trim(),
+        date: courseDate,
+        heure,
+        entrepriseId,
+        description: description ? description.trim() : "",
+        telephone: telephone ? telephone.trim() : "",
+        color: color || "#5E35B1",
+        statut: "En attente",
+        chauffeur: "",
+        pieceJointe: [],
+        recurrenceGroupId: recurrenceGroupId,
+        recurrenceConfig: recurrence,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }));
+      
+      // Insérer toutes les courses en une seule opération
+      const insertedCourses = await Planning.insertMany(coursesToCreate);
+      
+      console.log(`✅ ${insertedCourses.length} courses récurrentes créées avec succès`);
+      
+      res.status(201).json({ 
+        message: `✅ ${insertedCourses.length} courses récurrentes créées avec succès`,
+        recurringCourses: insertedCourses.length,
+        recurrenceGroupId: recurrenceGroupId
+      });
+      
+    } else {
+      // Course unique (comportement normal)
+      const newCourse = new Planning({
+        nom: nom.trim(),
+        prenom: prenom.trim(),
+        depart: depart.trim(),
+        arrive: arrive.trim(),
+        date,
+        heure,
+        entrepriseId,
+        description: description ? description.trim() : "",
+        telephone: telephone ? telephone.trim() : "",
+        color: color || "#5E35B1",
+        statut: "En attente",
+        chauffeur: "",
+        pieceJointe: [],
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
 
-    console.log("💾 Tentative de sauvegarde:", {
-      nom: newCourse.nom,
-      prenom: newCourse.prenom,
-      date: newCourse.date,
-      heure: newCourse.heure,
-      entrepriseId: newCourse.entrepriseId
-    });
+      console.log("💾 Tentative de sauvegarde:", {
+        nom: newCourse.nom,
+        prenom: newCourse.prenom,
+        date: newCourse.date,
+        heure: newCourse.heure,
+        entrepriseId: newCourse.entrepriseId
+      });
 
-    const savedCourse = await newCourse.save();
-    
-    console.log("✅ Course sauvegardée avec succès, ID:", savedCourse._id);
-    
-    res.status(201).json({ 
-      message: "✅ Course ajoutée avec succès", 
-      course: savedCourse 
-    });
+      const savedCourse = await newCourse.save();
+      
+      console.log("✅ Course sauvegardée avec succès, ID:", savedCourse._id);
+      
+      res.status(201).json({ 
+        message: "✅ Course ajoutée avec succès", 
+        course: savedCourse 
+      });
+    }
 
   } catch (err) {
     console.error("❌ Erreur ajout course :", err);
@@ -281,214 +311,10 @@ router.post("/", async (req, res) => {
   }
 });
 
-// 🆕 AJOUTER DES COURSES RÉCURRENTES
-router.post("/recurrent", async (req, res) => {
-  try {
-    console.log("🔄 POST /planning/recurrent - Création de courses récurrentes");
-    
-    const { 
-      nom, prenom, depart, arrive, heure, date, description, color, 
-      entrepriseId, telephone, recurrence 
-    } = req.body;
-
-    // Validation des données de base
-    const validationErrors = validateInputData(req.body);
-    if (validationErrors.length > 0) {
-      return res.status(400).json({ 
-        error: "Erreurs de validation",
-        details: validationErrors
-      });
-    }
-
-    // Validation des données de récurrence
-    if (!recurrence) {
-      return res.status(400).json({ 
-        error: "Données de récurrence manquantes"
-      });
-    }
-
-    const recurrenceErrors = validateRecurrenceData(recurrence);
-    if (recurrenceErrors.length > 0) {
-      return res.status(400).json({ 
-        error: "Erreurs de validation de la récurrence",
-        details: recurrenceErrors
-      });
-    }
-
-    // Générer les dates de récurrence
-    const recurrenceDates = generateRecurrenceDates(date, recurrence);
-    
-    if (recurrenceDates.length === 0) {
-      return res.status(400).json({ 
-        error: "Aucune date de récurrence générée"
-      });
-    }
-
-    console.log(`📅 ${recurrenceDates.length} dates générées pour la récurrence`);
-
-    // Créer un identifiant de groupe pour lier les courses récurrentes
-    const recurrenceGroupId = crypto.randomBytes(16).toString('hex');
-    
-    // Créer les courses
-    const createdCourses = [];
-    const errors = [];
-
-    for (const recurDate of recurrenceDates) {
-      try {
-        const newCourse = new Planning({
-          nom: nom.trim(),
-          prenom: prenom.trim(),
-          depart: depart.trim(),
-          arrive: arrive.trim(),
-          date: recurDate,
-          heure,
-          entrepriseId,
-          description: description ? description.trim() : "",
-          telephone: telephone ? telephone.trim() : "",
-          color: color || "#5E35B1",
-          statut: "En attente",
-          chauffeur: "",
-          pieceJointe: [],
-          // Champs spécifiques à la récurrence
-          recurrenceGroupId,
-          isRecurrent: true,
-          recurrenceInfo: {
-            frequency: recurrence.frequency,
-            endType: recurrence.endType,
-            endDate: recurrence.endDate,
-            occurrences: recurrence.occurrences,
-            weekDays: recurrence.weekDays,
-            originalDate: date
-          },
-          createdAt: new Date(),
-          updatedAt: new Date()
-        });
-
-        const savedCourse = await newCourse.save();
-        createdCourses.push(savedCourse);
-        
-      } catch (err) {
-        console.error(`❌ Erreur création course pour ${recurDate}:`, err.message);
-        errors.push({
-          date: recurDate,
-          error: err.message
-        });
-      }
-    }
-
-    console.log(`✅ ${createdCourses.length} courses créées sur ${recurrenceDates.length}`);
-
-    res.status(201).json({ 
-      message: `✅ ${createdCourses.length} courses récurrentes créées`, 
-      courses: createdCourses,
-      recurrenceGroupId,
-      errors: errors.length > 0 ? errors : undefined
-    });
-
-  } catch (err) {
-    console.error("❌ Erreur création courses récurrentes :", err);
-    res.status(500).json({ error: "Erreur lors de la création des courses récurrentes" });
-  }
-});
-
-// 🆕 ARRÊTER UNE RÉCURRENCE
-router.put("/recurrence/stop/:groupId", async (req, res) => {
-  try {
-    const { groupId } = req.params;
-    const { stopDate, reason } = req.body;
-
-    console.log("🛑 PUT /planning/recurrence/stop - Arrêt de récurrence:", groupId);
-
-    if (!stopDate || !/^\d{4}-\d{2}-\d{2}$/.test(stopDate)) {
-      return res.status(400).json({ error: "Date d'arrêt invalide" });
-    }
-
-    // Supprimer toutes les courses futures du groupe
-    const deleteResult = await Planning.deleteMany({
-      recurrenceGroupId: groupId,
-      date: { $gt: stopDate },
-      statut: { $in: ["En attente", "Assignée"] } // Ne pas supprimer les courses terminées
-    });
-
-    // Mettre à jour les informations de récurrence pour les courses restantes
-    await Planning.updateMany(
-      {
-        recurrenceGroupId: groupId,
-        date: { $lte: stopDate }
-      },
-      {
-        $set: {
-          'recurrenceInfo.stopped': true,
-          'recurrenceInfo.stopDate': stopDate,
-          'recurrenceInfo.stopReason': reason || "Arrêté manuellement",
-          updatedAt: new Date()
-        }
-      }
-    );
-
-    console.log(`✅ ${deleteResult.deletedCount} courses futures supprimées`);
-
-    res.status(200).json({
-      message: "Récurrence arrêtée avec succès",
-      deletedCount: deleteResult.deletedCount,
-      stopDate
-    });
-
-  } catch (err) {
-    console.error("❌ Erreur arrêt récurrence :", err);
-    res.status(500).json({ error: "Erreur lors de l'arrêt de la récurrence" });
-  }
-});
-
-// 🆕 RÉCUPÉRER LES INFORMATIONS D'UN GROUPE DE RÉCURRENCE
-router.get("/recurrence/:groupId", async (req, res) => {
-  try {
-    const { groupId } = req.params;
-    const { entrepriseId } = req.query;
-
-    if (!entrepriseId) {
-      return res.status(400).json({ error: "entrepriseId requis" });
-    }
-
-    console.log("📊 GET /planning/recurrence - Infos récurrence:", groupId);
-
-    const courses = await Planning.find({
-      recurrenceGroupId: groupId,
-      entrepriseId
-    }).sort({ date: 1 });
-
-    if (courses.length === 0) {
-      return res.status(404).json({ error: "Groupe de récurrence non trouvé" });
-    }
-
-    // Calculer les statistiques
-    const stats = {
-      total: courses.length,
-      completed: courses.filter(c => c.statut === "Terminée").length,
-      pending: courses.filter(c => c.statut === "En attente").length,
-      assigned: courses.filter(c => c.statut === "Assignée").length,
-      cancelled: courses.filter(c => c.statut === "Annulée").length,
-      firstDate: courses[0].date,
-      lastDate: courses[courses.length - 1].date,
-      recurrenceInfo: courses[0].recurrenceInfo
-    };
-
-    res.status(200).json({
-      groupId,
-      stats,
-      courses
-    });
-
-  } catch (err) {
-    console.error("❌ Erreur récupération récurrence :", err);
-    res.status(500).json({ error: "Erreur lors de la récupération des informations" });
-  }
-});
-
 // ✅ RÉCUPÉRER TOUTES LES COURSES D'UNE ENTREPRISE
 router.get("/", async (req, res) => {
   try {
-    const { entrepriseId, date, chauffeur, statut, includeRecurrent } = req.query;
+    const { entrepriseId, date, chauffeur, statut } = req.query;
     
     if (!entrepriseId) {
       return res.status(400).json({ error: "❌ entrepriseId requis" });
@@ -510,11 +336,6 @@ router.get("/", async (req, res) => {
     
     if (statut && statut !== "all") {
       filter.statut = statut;
-    }
-
-    // Option pour exclure les courses récurrentes
-    if (includeRecurrent === 'false') {
-      filter.isRecurrent = { $ne: true };
     }
 
     const courses = await Planning.find(filter)
@@ -539,7 +360,66 @@ router.get("/", async (req, res) => {
   }
 });
 
-// ... (reste des routes existantes)
+// ✅ NOUVELLE ROUTE : ARRÊTER UNE RÉCURRENCE
+router.put("/stop-recurrence/:groupId", async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    
+    if (!groupId.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ error: "ID de groupe invalide" });
+    }
+
+    console.log("⏹️ PUT /planning/stop-recurrence - Arrêt récurrence:", groupId);
+
+    // Supprimer toutes les courses futures de ce groupe
+    const today = moment().format('YYYY-MM-DD');
+    
+    const result = await Planning.deleteMany({
+      recurrenceGroupId: groupId,
+      date: { $gt: today },
+      statut: { $in: ['En attente', 'Assignée'] }
+    });
+
+    console.log(`✅ ${result.deletedCount} courses futures supprimées`);
+    
+    res.status(200).json({ 
+      message: `✅ Récurrence arrêtée. ${result.deletedCount} courses futures supprimées.`,
+      deletedCount: result.deletedCount
+    });
+
+  } catch (err) {
+    console.error("❌ Erreur arrêt récurrence :", err);
+    res.status(500).json({ error: "Erreur lors de l'arrêt de la récurrence" });
+  }
+});
+
+// ✅ NOUVELLE ROUTE : SUPPRIMER UN GROUPE DE RÉCURRENCE COMPLET
+router.delete("/recurring-group/:groupId", async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    
+    if (!groupId.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ error: "ID de groupe invalide" });
+    }
+
+    console.log("🗑️ DELETE /planning/recurring-group - Suppression groupe:", groupId);
+
+    const result = await Planning.deleteMany({
+      recurrenceGroupId: groupId
+    });
+
+    console.log(`✅ ${result.deletedCount} courses du groupe supprimées`);
+    
+    res.status(200).json({ 
+      message: `✅ Série de courses supprimée. ${result.deletedCount} courses supprimées.`,
+      deletedCount: result.deletedCount
+    });
+
+  } catch (err) {
+    console.error("❌ Erreur suppression groupe :", err);
+    res.status(500).json({ error: "Erreur lors de la suppression du groupe" });
+  }
+});
 
 // ✅ RÉCUPÉRER LE PLANNING D'UN CHAUFFEUR
 router.get("/chauffeur/:chauffeurNom", async (req, res) => {

@@ -84,6 +84,14 @@ const planningSchema = new mongoose.Schema({
     maxlength: [1000, "La description ne peut pas dépasser 1000 caractères"]
   },
   
+  // ✅ TÉLÉPHONE (OPTIONNEL)
+  telephone: {
+    type: String,
+    default: "",
+    trim: true,
+    maxlength: [20, "Le téléphone ne peut pas dépasser 20 caractères"]
+  },
+  
   // ✅ COULEUR (OPTIONNEL)
   color: {
     type: String,
@@ -129,6 +137,41 @@ const planningSchema = new mongoose.Schema({
     index: true
   },
   
+  // ✅ GESTION DE LA RÉCURRENCE
+  recurrenceGroupId: {
+    type: mongoose.Schema.Types.ObjectId,
+    default: null,
+    index: true
+  },
+  recurrenceConfig: {
+    type: {
+      enabled: { type: Boolean, default: false },
+      frequency: {
+        type: String,
+        enum: ['quotidien', 'hebdomadaire', 'mensuel'],
+        default: 'hebdomadaire'
+      },
+      daysOfWeek: [{ type: Number, min: 0, max: 6 }], // 0 = dimanche, 6 = samedi
+      dayOfMonth: { type: Number, min: 1, max: 31, default: 1 },
+      endType: {
+        type: String,
+        enum: ['date', 'duration', 'occurrences', 'indefinite'],
+        default: 'duration'
+      },
+      endDate: String, // YYYY-MM-DD
+      duration: {
+        value: { type: Number, default: 1 },
+        unit: { 
+          type: String, 
+          enum: ['semaines', 'mois', 'ans'],
+          default: 'mois'
+        }
+      },
+      occurrences: { type: Number, default: 10 }
+    },
+    default: null
+  },
+  
   // ✅ HORODATAGE (AUTOMATIQUE)
   createdAt: {
     type: Date,
@@ -150,6 +193,13 @@ const planningSchema = new mongoose.Schema({
     default: null
   },
   
+  // ✅ PRIX (OPTIONNEL)
+  prix: {
+    type: Number,
+    default: 0,
+    min: [0, "Le prix ne peut pas être négatif"]
+  },
+  
   // ✅ PIÈCES JOINTES OPTIONNELLES
   pieceJointe: {
     type: [String],
@@ -162,6 +212,16 @@ const planningSchema = new mongoose.Schema({
       },
       message: "Impossible d'avoir plus de 10 pièces jointes ou format invalide"
     }
+  },
+  
+  // ✅ RÉFÉRENCES POUR LE PARTAGE
+  sharedFrom: {
+    type: mongoose.Schema.Types.Mixed,
+    default: null
+  },
+  originalCourseId: {
+    type: mongoose.Schema.Types.ObjectId,
+    default: null
   }
 }, {
   timestamps: false, // Utiliser nos propres champs
@@ -175,6 +235,7 @@ const planningSchema = new mongoose.Schema({
 planningSchema.index({ entrepriseId: 1, date: 1, heure: 1 });
 planningSchema.index({ entrepriseId: 1, chauffeur: 1, date: 1 });
 planningSchema.index({ entrepriseId: 1, statut: 1 });
+planningSchema.index({ entrepriseId: 1, recurrenceGroupId: 1 });
 planningSchema.index({ createdAt: -1 });
 
 // ✅ INDEX DE RECHERCHE TEXTUELLE
@@ -274,6 +335,10 @@ planningSchema.virtual('duree').get(function() {
   };
 });
 
+planningSchema.virtual('isRecurring').get(function() {
+  return !!this.recurrenceGroupId;
+});
+
 // ✅ MÉTHODES D'INSTANCE
 planningSchema.methods.marquerEnCours = function() {
   this.statut = 'En cours';
@@ -345,6 +410,22 @@ planningSchema.statics.findCoursesEnRetard = function(entrepriseId) {
     ],
     statut: { $in: ['En attente', 'Assignée'] }
   }).sort({ date: -1, heure: -1 });
+};
+
+planningSchema.statics.findByRecurrenceGroup = function(groupId) {
+  return this.find({ recurrenceGroupId: groupId })
+    .sort({ date: 1, heure: 1 });
+};
+
+planningSchema.statics.deleteRecurrenceGroup = function(groupId, fromDate = null) {
+  const query = { recurrenceGroupId: groupId };
+  
+  if (fromDate) {
+    query.date = { $gte: fromDate };
+    query.statut = { $in: ['En attente', 'Assignée'] };
+  }
+  
+  return this.deleteMany(query);
 };
 
 // ✅ CONFIGURATION JSON
