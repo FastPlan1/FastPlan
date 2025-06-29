@@ -141,10 +141,16 @@ function generateRecurringDates(startDate, recurrence) {
   return [...new Set(dates)].sort();
 }
 
-// 📦 Configuration de Multer pour les fichiers joints (optionnel)
+// 📦 Configuration de Multer pour les fichiers joints et PDF scannés
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    const uploadDir = "uploads/";
+    let uploadDir = "uploads/";
+    
+    // Créer un sous-dossier pour les PDF de fin de course
+    if (file.fieldname === 'scanPdf') {
+      uploadDir = "uploads/course-scans/";
+    }
+    
     if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true });
     }
@@ -152,7 +158,15 @@ const storage = multer.diskStorage({
   },
   filename: function (req, file, cb) {
     const ext = path.extname(file.originalname);
-    const uniqueName = `piece-${Date.now()}-${Math.round(Math.random() * 1E9)}${ext}`;
+    let uniqueName;
+    
+    if (file.fieldname === 'scanPdf') {
+      // Nom spécifique pour les scans de fin de course
+      uniqueName = `scan-${req.params.id}-${Date.now()}${ext}`;
+    } else {
+      uniqueName = `piece-${Date.now()}-${Math.round(Math.random() * 1E9)}${ext}`;
+    }
+    
     cb(null, uniqueName);
   }
 });
@@ -161,7 +175,16 @@ const upload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max
   fileFilter: (req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png|pdf|doc|docx/;
+    let allowedTypes;
+    
+    if (file.fieldname === 'scanPdf') {
+      // Pour les scans de fin de course, accepter PDF et images
+      allowedTypes = /jpeg|jpg|png|pdf/;
+    } else {
+      // Pour les pièces jointes normales
+      allowedTypes = /jpeg|jpg|png|pdf|doc|docx/;
+    }
+    
     const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
     const mimetype = allowedTypes.test(file.mimetype);
     
@@ -230,6 +253,7 @@ router.post("/", async (req, res) => {
         statut: "En attente",
         chauffeur: "",
         pieceJointe: [],
+        scanPdfUrl: null, // 🆕 Ajout du champ pour le PDF scanné
         recurrenceGroupId: recurrenceGroupId,
         recurrenceConfig: recurrence,
         createdAt: new Date(),
@@ -263,6 +287,7 @@ router.post("/", async (req, res) => {
         statut: "En attente",
         chauffeur: "",
         pieceJointe: [],
+        scanPdfUrl: null, // 🆕 Ajout du champ pour le PDF scanné
         createdAt: new Date(),
         updatedAt: new Date()
       });
@@ -349,6 +374,7 @@ router.get("/", async (req, res) => {
       pieceJointe: Array.isArray(course.pieceJointe) ? course.pieceJointe : [],
       description: course.description || '',
       telephone: course.telephone || '',
+      scanPdfUrl: course.scanPdfUrl || null, // 🆕 Inclure l'URL du PDF scanné
     }));
 
     console.log(`✅ ${coursesFormatted.length} courses récupérées`);
@@ -357,6 +383,219 @@ router.get("/", async (req, res) => {
   } catch (err) {
     console.error("❌ Erreur récupération planning :", err);
     res.status(500).json({ error: "Erreur lors de la récupération des courses" });
+  }
+});
+
+// 🆕 NOUVELLE ROUTE : TERMINER UNE COURSE AVEC SCAN PDF
+router.put("/finish-with-scan/:id", upload.single('scanPdf'), async (req, res) => {
+  try {
+    if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      // Nettoyer le fichier uploadé si l'ID est invalide
+      if (req.file) {
+        const fullPath = path.join(__dirname, "..", req.file.path);
+        if (fs.existsSync(fullPath)) {
+          fs.unlinkSync(fullPath);
+        }
+      }
+      return res.status(400).json({ error: "ID de course invalide" });
+    }
+
+    console.log("📄 PUT /planning/finish-with-scan - Fin course avec scan:", req.params.id);
+
+    // Vérifier que la course existe
+    const currentCourse = await Planning.findById(req.params.id);
+    if (!currentCourse) {
+      // Nettoyer le fichier uploadé si la course n'existe pas
+      if (req.file) {
+        const fullPath = path.join(__dirname, "..", req.file.path);
+        if (fs.existsSync(fullPath)) {
+          fs.unlinkSync(fullPath);
+        }
+      }
+      return res.status(404).json({ message: "❌ Course non trouvée." });
+    }
+
+    const updateData = { 
+      statut: "Terminée",
+      dateFin: new Date(),
+      updatedAt: new Date()
+    };
+
+    // Si ce n'était pas encore en cours, marquer aussi le début
+    if (!currentCourse.dateDebut) {
+      updateData.dateDebut = new Date();
+    }
+
+    // Si un fichier PDF a été uploadé
+    if (req.file) {
+      updateData.scanPdfUrl = `/uploads/course-scans/${req.file.filename}`;
+      console.log("📎 PDF scanné ajouté:", updateData.scanPdfUrl);
+    }
+
+    // Ajouter le prix si fourni
+    if (req.body.prix !== undefined) {
+      updateData.prix = parseFloat(req.body.prix) || 0;
+    }
+
+    const updatedCourse = await Planning.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      { new: true, runValidators: true }
+    );
+
+    console.log(`✅ Course terminée par ${updatedCourse.chauffeur} avec scan PDF`);
+    
+    res.status(200).json({ 
+      message: "✅ Course terminée avec scan", 
+      course: updatedCourse,
+      scanPdfUrl: updatedCourse.scanPdfUrl
+    });
+
+  } catch (err) {
+    console.error("❌ Erreur fin de course avec scan :", err);
+    
+    // Nettoyer le fichier en cas d'erreur
+    if (req.file) {
+      const fullPath = path.join(__dirname, "..", req.file.path);
+      if (fs.existsSync(fullPath)) {
+        try {
+          fs.unlinkSync(fullPath);
+        } catch (cleanupErr) {
+          console.error("❌ Erreur nettoyage fichier :", cleanupErr);
+        }
+      }
+    }
+    
+    if (err.name === 'CastError') {
+      return res.status(400).json({ error: "ID de course invalide" });
+    }
+    
+    res.status(500).json({ error: "Erreur lors de la finalisation de la course" });
+  }
+});
+
+// ✅ TERMINER UNE COURSE (sans scan)
+router.put("/finish/:id", async (req, res) => {
+  try {
+    if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ error: "ID de course invalide" });
+    }
+
+    console.log("✅ PUT /planning/finish - Fin course:", req.params.id);
+
+    const updateData = { 
+      statut: "Terminée",
+      dateFin: new Date(),
+      updatedAt: new Date()
+    };
+
+    // Si ce n'était pas encore en cours, marquer aussi le début
+    const currentCourse = await Planning.findById(req.params.id);
+    if (!currentCourse) {
+      return res.status(404).json({ message: "❌ Course non trouvée." });
+    }
+
+    if (!currentCourse.dateDebut) {
+      updateData.dateDebut = new Date();
+    }
+
+    // Ajouter le prix si fourni
+    if (req.body.prix !== undefined) {
+      updateData.prix = parseFloat(req.body.prix) || 0;
+    }
+
+    const updatedCourse = await Planning.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      { new: true, runValidators: true }
+    );
+
+    console.log(`🔔 Course terminée par ${updatedCourse.chauffeur} à ${new Date().toLocaleString()}`);
+    
+    res.status(200).json({ 
+      message: "✅ Course terminée", 
+      course: updatedCourse 
+    });
+
+  } catch (err) {
+    console.error("❌ Erreur fin de course :", err);
+    
+    if (err.name === 'CastError') {
+      return res.status(400).json({ error: "ID de course invalide" });
+    }
+    
+    res.status(500).json({ error: "Erreur lors de la finalisation de la course" });
+  }
+});
+
+// 🆕 NOUVELLE ROUTE : AJOUTER UN SCAN PDF À UNE COURSE DÉJÀ TERMINÉE
+router.post("/add-scan/:id", upload.single('scanPdf'), async (req, res) => {
+  try {
+    if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      if (req.file) {
+        const fullPath = path.join(__dirname, "..", req.file.path);
+        if (fs.existsSync(fullPath)) {
+          fs.unlinkSync(fullPath);
+        }
+      }
+      return res.status(400).json({ error: "ID de course invalide" });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: "❌ Aucun fichier PDF envoyé." });
+    }
+
+    console.log("📎 POST /planning/add-scan - Ajout scan PDF pour:", req.params.id);
+
+    const course = await Planning.findById(req.params.id);
+    if (!course) {
+      const fullPath = path.join(__dirname, "..", req.file.path);
+      if (fs.existsSync(fullPath)) {
+        fs.unlinkSync(fullPath);
+      }
+      return res.status(404).json({ message: "❌ Course non trouvée." });
+    }
+
+    // Supprimer l'ancien scan s'il existe
+    if (course.scanPdfUrl) {
+      const oldPath = path.join(__dirname, "..", course.scanPdfUrl);
+      if (fs.existsSync(oldPath)) {
+        try {
+          fs.unlinkSync(oldPath);
+          console.log("🗑️ Ancien scan supprimé");
+        } catch (error) {
+          console.error("Erreur suppression ancien scan:", error);
+        }
+      }
+    }
+
+    // Mettre à jour avec le nouveau scan
+    course.scanPdfUrl = `/uploads/course-scans/${req.file.filename}`;
+    course.updatedAt = new Date();
+    await course.save();
+    
+    console.log("✅ Scan PDF ajouté avec succès");
+    res.status(200).json({ 
+      message: "📄 Scan PDF ajouté avec succès", 
+      course,
+      scanPdfUrl: course.scanPdfUrl
+    });
+
+  } catch (err) {
+    console.error("❌ Erreur ajout scan PDF :", err);
+    
+    if (req.file) {
+      const fullPath = path.join(__dirname, "..", req.file.path);
+      if (fs.existsSync(fullPath)) {
+        try {
+          fs.unlinkSync(fullPath);
+        } catch (cleanupErr) {
+          console.error("❌ Erreur nettoyage fichier :", cleanupErr);
+        }
+      }
+    }
+    
+    res.status(500).json({ error: "Erreur lors de l'ajout du scan PDF" });
   }
 });
 
@@ -473,7 +712,8 @@ router.get("/chauffeur/:chauffeurNom", async (req, res) => {
       description: course.description || '',
       telephone: course.telephone || '',
       depart: course.depart || 'Adresse de départ non spécifiée',
-      arrive: course.arrive || 'Adresse d\'arrivée non spécifiée'
+      arrive: course.arrive || 'Adresse d\'arrivée non spécifiée',
+      scanPdfUrl: course.scanPdfUrl || null, // 🆕 Inclure l'URL du PDF scanné
     }));
 
     console.log(`✅ ${coursesFormatted.length} courses trouvées pour ${chauffeurNom}`);
@@ -599,6 +839,7 @@ router.post("/accept-shared", async (req, res) => {
       statut: "En attente",
       chauffeur: "",
       color: "#6C63FF", // Couleur par défaut
+      scanPdfUrl: null, // 🆕 Pas de scan PDF au départ
       createdAt: new Date(),
       updatedAt: new Date(),
       // Ajouter une référence à la course originale si nécessaire
@@ -796,55 +1037,6 @@ router.put("/start/:id", async (req, res) => {
   }
 });
 
-// ✅ TERMINER UNE COURSE
-router.put("/finish/:id", async (req, res) => {
-  try {
-    if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
-      return res.status(400).json({ error: "ID de course invalide" });
-    }
-
-    console.log("✅ PUT /planning/finish - Fin course:", req.params.id);
-
-    const updateData = { 
-      statut: "Terminée",
-      dateFin: new Date(),
-      updatedAt: new Date()
-    };
-
-    // Si ce n'était pas encore en cours, marquer aussi le début
-    const currentCourse = await Planning.findById(req.params.id);
-    if (!currentCourse) {
-      return res.status(404).json({ message: "❌ Course non trouvée." });
-    }
-
-    if (!currentCourse.dateDebut) {
-      updateData.dateDebut = new Date();
-    }
-
-    const updatedCourse = await Planning.findByIdAndUpdate(
-      req.params.id,
-      updateData,
-      { new: true, runValidators: true }
-    );
-
-    console.log(`🔔 Course terminée par ${updatedCourse.chauffeur} à ${new Date().toLocaleString()}`);
-    
-    res.status(200).json({ 
-      message: "✅ Course terminée", 
-      course: updatedCourse 
-    });
-
-  } catch (err) {
-    console.error("❌ Erreur fin de course :", err);
-    
-    if (err.name === 'CastError') {
-      return res.status(400).json({ error: "ID de course invalide" });
-    }
-    
-    res.status(500).json({ error: "Erreur lors de la finalisation de la course" });
-  }
-});
-
 // ✅ METTRE À JOUR UNE COURSE
 router.put("/:id", async (req, res) => {
   try {
@@ -944,6 +1136,19 @@ router.delete("/:id", async (req, res) => {
           }
         }
       });
+    }
+    
+    // 🆕 Supprimer le scan PDF s'il existe
+    if (deleted.scanPdfUrl) {
+      const pdfPath = path.join(__dirname, "..", deleted.scanPdfUrl);
+      if (fs.existsSync(pdfPath)) {
+        try {
+          fs.unlinkSync(pdfPath);
+          console.log("📄 Scan PDF supprimé");
+        } catch (fileErr) {
+          console.error("❌ Erreur suppression scan PDF :", fileErr);
+        }
+      }
     }
     
     console.log("✅ Course supprimée");
@@ -1078,7 +1283,8 @@ router.get("/terminees", async (req, res) => {
       pieceJointe: Array.isArray(course.pieceJointe) ? course.pieceJointe : [],
       description: course.description || '',
       telephone: course.telephone || '',
-      prix: course.prix || 0
+      prix: course.prix || 0,
+      scanPdfUrl: course.scanPdfUrl || null, // 🆕 Inclure l'URL du PDF scanné
     }));
 
     console.log(`✅ ${coursesFormatted.length} courses terminées récupérées`);
@@ -1170,7 +1376,8 @@ router.get("/course/:id", async (req, res) => {
       name: `${course.prenom || ''} ${course.nom || ''}`.trim() || 'Client sans nom',
       pieceJointe: Array.isArray(course.pieceJointe) ? course.pieceJointe : [],
       description: course.description || '',
-      telephone: course.telephone || ''
+      telephone: course.telephone || '',
+      scanPdfUrl: course.scanPdfUrl || null, // 🆕 Inclure l'URL du PDF scanné
     };
     
     console.log("✅ Détails récupérés");
