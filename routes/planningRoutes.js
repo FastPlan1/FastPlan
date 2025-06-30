@@ -1394,4 +1394,378 @@ router.get("/course/:id", async (req, res) => {
   }
 });
 
+// 🆕 NOUVELLE ROUTE : TERMINER UNE COURSE AVEC DONNÉES COMPLÈTES
+router.put("/finish-complete/:id", upload.fields([
+  { name: 'scanPdf', maxCount: 1 },
+  { name: 'attachments', maxCount: 10 }
+]), async (req, res) => {
+  try {
+    if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      // Nettoyer les fichiers uploadés si l'ID est invalide
+      if (req.files) {
+        Object.values(req.files).flat().forEach(file => {
+          const fullPath = path.join(__dirname, "..", file.path);
+          if (fs.existsSync(fullPath)) {
+            fs.unlinkSync(fullPath);
+          }
+        });
+      }
+      return res.status(400).json({ error: "ID de course invalide" });
+    }
+
+    console.log("📄 PUT /planning/finish-complete - Fin course complète:", req.params.id);
+
+    // Vérifier que la course existe
+    const currentCourse = await Planning.findById(req.params.id);
+    if (!currentCourse) {
+      // Nettoyer les fichiers uploadés si la course n'existe pas
+      if (req.files) {
+        Object.values(req.files).flat().forEach(file => {
+          const fullPath = path.join(__dirname, "..", file.path);
+          if (fs.existsSync(fullPath)) {
+            fs.unlinkSync(fullPath);
+          }
+        });
+      }
+      return res.status(404).json({ message: "❌ Course non trouvée." });
+    }
+
+    const updateData = { 
+      statut: "Terminée",
+      dateFin: new Date(),
+      updatedAt: new Date()
+    };
+
+    // Si ce n'était pas encore en cours, marquer aussi le début
+    if (!currentCourse.dateDebut) {
+      updateData.dateDebut = new Date();
+    }
+
+    // Ajouter le prix si fourni
+    if (req.body.prix !== undefined) {
+      const prix = parseFloat(req.body.prix);
+      if (!isNaN(prix) && prix >= 0) {
+        updateData.prix = prix;
+      }
+    }
+
+    // Ajouter les notes si fournies
+    if (req.body.notes && req.body.notes.trim()) {
+      updateData.notes = req.body.notes.trim();
+    }
+
+    // Ajouter le temps d'attente si fourni
+    if (req.body.tempsAttente && req.body.tempsAttente.trim()) {
+      updateData.tempsAttente = req.body.tempsAttente.trim();
+    }
+
+    // Traiter le scan PDF si fourni
+    if (req.files && req.files.scanPdf && req.files.scanPdf[0]) {
+      updateData.scanPdfUrl = `/uploads/course-scans/${req.files.scanPdf[0].filename}`;
+      console.log("📎 PDF scanné ajouté:", updateData.scanPdfUrl);
+    }
+
+    // Traiter les pièces jointes si fournies
+    if (req.files && req.files.attachments) {
+      const attachmentPaths = req.files.attachments.map(file => `/uploads/${file.filename}`);
+      
+      // Ajouter aux pièces jointes existantes
+      const existingAttachments = Array.isArray(currentCourse.pieceJointe) 
+        ? currentCourse.pieceJointe 
+        : [];
+      
+      updateData.pieceJointe = [...existingAttachments, ...attachmentPaths];
+      console.log("📎 Pièces jointes ajoutées:", attachmentPaths.length);
+    }
+
+    const updatedCourse = await Planning.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      { new: true, runValidators: true }
+    );
+
+    console.log(`✅ Course terminée complètement par ${updatedCourse.chauffeur}`);
+    
+    res.status(200).json({ 
+      message: "✅ Course terminée avec succès", 
+      course: updatedCourse,
+      scanPdfUrl: updatedCourse.scanPdfUrl,
+      attachments: updatedCourse.pieceJointe
+    });
+
+  } catch (err) {
+    console.error("❌ Erreur fin de course complète :", err);
+    
+    // Nettoyer les fichiers en cas d'erreur
+    if (req.files) {
+      Object.values(req.files).flat().forEach(file => {
+        const fullPath = path.join(__dirname, "..", file.path);
+        if (fs.existsSync(fullPath)) {
+          try {
+            fs.unlinkSync(fullPath);
+          } catch (cleanupErr) {
+            console.error("❌ Erreur nettoyage fichier :", cleanupErr);
+          }
+        }
+      });
+    }
+    
+    if (err.name === 'CastError') {
+      return res.status(400).json({ error: "ID de course invalide" });
+    }
+    
+    res.status(500).json({ error: "Erreur lors de la finalisation de la course" });
+  }
+});
+
+// 🆕 NOUVELLE ROUTE : AJOUTER DES NOTES À UNE COURSE
+router.put("/notes/:id", async (req, res) => {
+  try {
+    const { notes, tempsAttente } = req.body;
+    
+    if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ error: "ID de course invalide" });
+    }
+
+    console.log("📝 PUT /planning/notes - Ajout notes:", req.params.id);
+
+    const updateData = { 
+      updatedAt: new Date()
+    };
+
+    if (notes !== undefined) {
+      updateData.notes = notes.trim();
+    }
+
+    if (tempsAttente !== undefined) {
+      updateData.tempsAttente = tempsAttente.trim();
+    }
+
+    const updatedCourse = await Planning.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      { new: true, runValidators: true }
+    );
+    
+    if (!updatedCourse) {
+      return res.status(404).json({ message: "❌ Course non trouvée." });
+    }
+    
+    console.log("✅ Notes ajoutées avec succès");
+    res.status(200).json({ 
+      message: "📝 Notes ajoutées avec succès", 
+      course: updatedCourse 
+    });
+
+  } catch (err) {
+    console.error("❌ Erreur ajout notes :", err);
+    
+    if (err.name === 'CastError') {
+      return res.status(400).json({ error: "ID de course invalide" });
+    }
+    
+    res.status(500).json({ error: "Erreur lors de l'ajout des notes" });
+  }
+});
+
+// 🆕 NOUVELLE ROUTE : RÉCUPÉRER LES STATISTIQUES D'UN CHAUFFEUR
+router.get("/stats/chauffeur/:chauffeurNom", async (req, res) => {
+  try {
+    const { entrepriseId, dateStart, dateEnd } = req.query;
+    const chauffeurNom = decodeURIComponent(req.params.chauffeurNom);
+    
+    if (!entrepriseId) {
+      return res.status(400).json({ error: "❌ entrepriseId requis" });
+    }
+
+    if (!chauffeurNom || !chauffeurNom.trim()) {
+      return res.status(400).json({ error: "❌ Nom du chauffeur requis" });
+    }
+
+    console.log("📊 GET /planning/stats/chauffeur - Statistiques pour:", chauffeurNom);
+
+    // Construction du filtre
+    const filter = {
+      entrepriseId,
+      chauffeur: { $regex: new RegExp(`^${escapeRegExp(chauffeurNom.trim())}$`, "i") },
+    };
+
+    // Filtre par période si spécifié
+    if (dateStart || dateEnd) {
+      filter.date = {};
+      if (dateStart && /^\d{4}-\d{2}-\d{2}$/.test(dateStart)) {
+        filter.date.$gte = dateStart;
+      }
+      if (dateEnd && /^\d{4}-\d{2}-\d{2}$/.test(dateEnd)) {
+        filter.date.$lte = dateEnd;
+      }
+    }
+
+    // Récupérer toutes les courses du chauffeur
+    const courses = await Planning.find(filter).lean();
+
+    // Calculer les statistiques
+    const stats = {
+      totalCourses: courses.length,
+      coursesTerminees: courses.filter(c => c.statut === 'Terminée').length,
+      coursesEnCours: courses.filter(c => c.statut === 'En cours').length,
+      coursesAssignees: courses.filter(c => c.statut === 'Assignée').length,
+      totalChiffre: courses
+        .filter(c => c.statut === 'Terminée' && c.prix)
+        .reduce((sum, c) => sum + (parseFloat(c.prix) || 0), 0),
+      moyennePrix: 0,
+      tempsTotal: 0,
+      moyenneTemps: 0
+    };
+
+    // Calculer la moyenne des prix
+    const coursesAvecPrix = courses.filter(c => c.statut === 'Terminée' && c.prix > 0);
+    if (coursesAvecPrix.length > 0) {
+      stats.moyennePrix = stats.totalChiffre / coursesAvecPrix.length;
+    }
+
+    // Calculer les temps de course
+    const coursesAvecTemps = courses.filter(c => c.dateDebut && c.dateFin);
+    if (coursesAvecTemps.length > 0) {
+      const tempsTotal = coursesAvecTemps.reduce((sum, c) => {
+        const debut = new Date(c.dateDebut);
+        const fin = new Date(c.dateFin);
+        return sum + (fin.getTime() - debut.getTime());
+      }, 0);
+      
+      stats.tempsTotal = Math.round(tempsTotal / 60000); // en minutes
+      stats.moyenneTemps = Math.round(stats.tempsTotal / coursesAvecTemps.length);
+    }
+
+    // Statistiques par jour de la semaine
+    const statsParJour = {};
+    ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'].forEach(jour => {
+      statsParJour[jour] = { courses: 0, chiffre: 0 };
+    });
+
+    courses.forEach(course => {
+      const jourSemaine = moment(course.date).format('dddd');
+      const jourFr = {
+        'Monday': 'Lundi',
+        'Tuesday': 'Mardi', 
+        'Wednesday': 'Mercredi',
+        'Thursday': 'Jeudi',
+        'Friday': 'Vendredi',
+        'Saturday': 'Samedi',
+        'Sunday': 'Dimanche'
+      }[jourSemaine] || jourSemaine;
+
+      if (statsParJour[jourFr]) {
+        statsParJour[jourFr].courses++;
+        if (course.statut === 'Terminée' && course.prix) {
+          statsParJour[jourFr].chiffre += parseFloat(course.prix) || 0;
+        }
+      }
+    });
+
+    stats.statsParJour = statsParJour;
+
+    console.log(`✅ Statistiques calculées pour ${chauffeurNom}`);
+    res.status(200).json(stats);
+
+  } catch (err) {
+    console.error("❌ Erreur récupération statistiques chauffeur :", err);
+    res.status(500).json({ error: "Erreur lors de la récupération des statistiques" });
+  }
+});
+
+// 🆕 NOUVELLE ROUTE : EXPORTER LES DONNÉES D'UN CHAUFFEUR
+router.get("/export/chauffeur/:chauffeurNom", async (req, res) => {
+  try {
+    const { entrepriseId, dateStart, dateEnd, format = 'json' } = req.query;
+    const chauffeurNom = decodeURIComponent(req.params.chauffeurNom);
+    
+    if (!entrepriseId) {
+      return res.status(400).json({ error: "❌ entrepriseId requis" });
+    }
+
+    console.log("📤 GET /planning/export/chauffeur - Export pour:", chauffeurNom);
+
+    // Construction du filtre
+    const filter = { entrepriseId };
+    
+    if (chauffeurNom && chauffeurNom.trim()) {
+      filter.chauffeur = { $regex: new RegExp(`^${escapeRegExp(chauffeurNom.trim())}$`, "i") };
+    }
+
+    // Filtre par période
+    if (dateStart || dateEnd) {
+      filter.date = {};
+      if (dateStart && /^\d{4}-\d{2}-\d{2}$/.test(dateStart)) {
+        filter.date.$gte = dateStart;
+      }
+      if (dateEnd && /^\d{4}-\d{2}-\d{2}$/.test(dateEnd)) {
+        filter.date.$lte = dateEnd;
+      }
+    }
+
+    const courses = await Planning.find(filter)
+      .sort({ date: -1, heure: -1 })
+      .lean();
+
+    // Formater les données pour l'export
+    const exportData = courses.map(course => ({
+      id: course._id,
+      date: course.date,
+      heure: course.heure,
+      client: `${course.prenom} ${course.nom}`,
+      telephone: course.telephone || '',
+      depart: course.depart,
+      arrive: course.arrive,
+      chauffeur: course.chauffeur || '',
+      statut: course.statut,
+      prix: course.prix || 0,
+      notes: course.notes || '',
+      tempsAttente: course.tempsAttente || '',
+      dateDebut: course.dateDebut ? moment(course.dateDebut).format('YYYY-MM-DD HH:mm:ss') : '',
+      dateFin: course.dateFin ? moment(course.dateFin).format('YYYY-MM-DD HH:mm:ss') : '',
+      dureeMinutes: course.dateDebut && course.dateFin 
+        ? Math.round((new Date(course.dateFin) - new Date(course.dateDebut)) / 60000)
+        : 0,
+      description: course.description || '',
+      pieceJointe: Array.isArray(course.pieceJointe) ? course.pieceJointe.length : 0,
+      scanPdf: course.scanPdfUrl ? 'Oui' : 'Non'
+    }));
+
+    if (format === 'csv') {
+      // Générer CSV
+      const csvHeaders = Object.keys(exportData[0] || {}).join(',');
+      const csvRows = exportData.map(row => 
+        Object.values(row).map(value => 
+          typeof value === 'string' && value.includes(',') 
+            ? `"${value.replace(/"/g, '""')}"` 
+            : value
+        ).join(',')
+      );
+      const csvContent = [csvHeaders, ...csvRows].join('\n');
+
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename=courses_${chauffeurNom}_${Date.now()}.csv`);
+      res.send(csvContent);
+    } else {
+      // Format JSON par défaut
+      res.status(200).json({
+        chauffeur: chauffeurNom,
+        periode: {
+          debut: dateStart || 'Début',
+          fin: dateEnd || 'Fin'
+        },
+        totalCourses: exportData.length,
+        courses: exportData
+      });
+    }
+
+    console.log(`✅ Export généré: ${exportData.length} courses`);
+
+  } catch (err) {
+    console.error("❌ Erreur export chauffeur :", err);
+    res.status(500).json({ error: "Erreur lors de l'export des données" });
+  }
+});
+
 module.exports = router;

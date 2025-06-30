@@ -76,6 +76,7 @@ const planningSchema = new mongoose.Schema({
     },
   },
   
+  
   // ✅ DESCRIPTION (OPTIONNEL)
   description: {
     type: String,
@@ -198,6 +199,36 @@ const planningSchema = new mongoose.Schema({
     type: Number,
     default: 0,
     min: [0, "Le prix ne peut pas être négatif"]
+  },
+
+  
+  // ✅ NOTES DE COURSE (OPTIONNEL)
+  notes: {
+    type: String,
+    default: "",
+    trim: true,
+    maxlength: [2000, "Les notes ne peuvent pas dépasser 2000 caractères"]
+  },
+  
+  // ✅ TEMPS D'ATTENTE (OPTIONNEL)
+  tempsAttente: {
+    type: String,
+    default: "",
+    trim: true,
+    maxlength: [100, "Le temps d'attente ne peut pas dépasser 100 caractères"]
+  },
+
+  // ✅ SCAN PDF DE FIN DE COURSE (OPTIONNEL)
+  scanPdfUrl: {
+    type: String,
+    default: null,
+    validate: {
+      validator: function(v) {
+        if (!v) return true; // null/undefined autorisé
+        return typeof v === 'string' && v.length > 0;
+      },
+      message: "URL du scan PDF invalide"
+    }
   },
   
   // ✅ PIÈCES JOINTES OPTIONNELLES
@@ -368,6 +399,143 @@ planningSchema.methods.assignerChauffeur = function(nomChauffeur, couleur = null
   return this.save();
 };
 
+planningSchema.virtual('hasNotes').get(function() {
+  return !!(this.notes && this.notes.trim().length > 0);
+});
+
+planningSchema.virtual('hasTempsAttente').get(function() {
+  return !!(this.tempsAttente && this.tempsAttente.trim().length > 0);
+});
+
+planningSchema.virtual('hasScanPdf').get(function() {
+  return !!this.scanPdfUrl;
+});
+
+planningSchema.virtual('hasAttachments').get(function() {
+  return Array.isArray(this.pieceJointe) && this.pieceJointe.length > 0;
+});
+
+planningSchema.virtual('isComplete').get(function() {
+  return this.statut === 'Terminée' && this.prix > 0;
+});
+
+planningSchema.virtual('totalAttachments').get(function() {
+  let count = 0;
+  if (Array.isArray(this.pieceJointe)) {
+    count += this.pieceJointe.length;
+  }
+  if (this.scanPdfUrl) {
+    count += 1;
+  }
+  return count;
+});
+
+// ✅ NOUVELLES MÉTHODES D'INSTANCE À AJOUTER:
+
+planningSchema.methods.ajouterNotes = function(notes, tempsAttente = null) {
+  this.notes = notes.trim();
+  if (tempsAttente) {
+    this.tempsAttente = tempsAttente.trim();
+  }
+  this.updatedAt = new Date();
+  return this.save();
+};
+
+planningSchema.methods.ajouterScanPdf = function(scanPdfUrl) {
+  this.scanPdfUrl = scanPdfUrl;
+  this.updatedAt = new Date();
+  return this.save();
+};
+
+planningSchema.methods.terminerAvecDetails = function(details) {
+  this.statut = 'Terminée';
+  this.dateFin = new Date();
+  
+  if (!this.dateDebut) {
+    this.dateDebut = new Date();
+  }
+  
+  if (details.prix !== undefined) {
+    this.prix = parseFloat(details.prix) || 0;
+  }
+  
+  if (details.notes) {
+    this.notes = details.notes.trim();
+  }
+  
+  if (details.tempsAttente) {
+    this.tempsAttente = details.tempsAttente.trim();
+  }
+  
+  if (details.scanPdfUrl) {
+    this.scanPdfUrl = details.scanPdfUrl;
+  }
+  
+  if (details.attachments && Array.isArray(details.attachments)) {
+    this.pieceJointe = this.pieceJointe.concat(details.attachments);
+  }
+  
+  this.updatedAt = new Date();
+  return this.save();
+};
+
+// ✅ NOUVELLES MÉTHODES STATIQUES À AJOUTER:
+
+planningSchema.statics.getStatsChauffeur = function(chauffeurNom, entrepriseId, options = {}) {
+  const filter = { 
+    entrepriseId,
+    chauffeur: { $regex: new RegExp(`^${chauffeurNom.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, "i") }
+  };
+  
+  if (options.dateStart || options.dateEnd) {
+    filter.date = {};
+    if (options.dateStart) filter.date.$gte = options.dateStart;
+    if (options.dateEnd) filter.date.$lte = options.dateEnd;
+  }
+  
+  return this.aggregate([
+    { $match: filter },
+    {
+      $group: {
+        _id: null,
+        totalCourses: { $sum: 1 },
+        coursesTerminees: {
+          $sum: { $cond: [{ $eq: ["$statut", "Terminée"] }, 1, 0] }
+        },
+        coursesEnCours: {
+          $sum: { $cond: [{ $eq: ["$statut", "En cours"] }, 1, 0] }
+        },
+        totalChiffre: {
+          $sum: { 
+            $cond: [
+              { $and: [{ $eq: ["$statut", "Terminée"] }, { $gt: ["$prix", 0] }] },
+              "$prix",
+              0
+            ]
+          }
+        },
+        moyennePrix: { $avg: "$prix" }
+      }
+    }
+  ]);
+};
+
+planningSchema.statics.getCoursesByStatut = function(entrepriseId, date = null) {
+  const filter = { entrepriseId };
+  if (date) filter.date = date;
+  
+  return this.aggregate([
+    { $match: filter },
+    {
+      $group: {
+        _id: "$statut",
+        count: { $sum: 1 },
+        courses: { $push: "$$ROOT" }
+      }
+    }
+  ]);
+};
+
 // ✅ MÉTHODES STATIQUES
 planningSchema.statics.findByEntreprise = function(entrepriseId, options = {}) {
   const query = { entrepriseId };
@@ -427,6 +595,30 @@ planningSchema.statics.deleteRecurrenceGroup = function(groupId, fromDate = null
   
   return this.deleteMany(query);
 };
+// ✅ MISE À JOUR DE LA CONFIGURATION JSON POUR INCLURE LES NOUVEAUX CHAMPS:
+
+planningSchema.set('toJSON', { 
+  virtuals: true,
+  transform: function(doc, ret) {
+    delete ret._id;
+    ret.id = doc._id;
+    
+    // S'assurer que pieceJointe est toujours un tableau
+    if (!Array.isArray(ret.pieceJointe)) {
+      ret.pieceJointe = [];
+    }
+    
+    // Ajouter les champs calculés
+    ret.hasNotes = doc.hasNotes;
+    ret.hasTempsAttente = doc.hasTempsAttente;
+    ret.hasScanPdf = doc.hasScanPdf;
+    ret.hasAttachments = doc.hasAttachments;
+    ret.isComplete = doc.isComplete;
+    ret.totalAttachments = doc.totalAttachments;
+    
+    return ret;
+  }
+});
 
 // ✅ CONFIGURATION JSON
 planningSchema.set('toJSON', { 
