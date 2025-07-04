@@ -6,7 +6,6 @@ const crypto = require("crypto");
 const dotenv = require("dotenv");
 const User = require("../models/User");
 const InviteCode = require("../models/codeInvitation");
-const Entreprise = require("../models/Entreprise");
 const nodemailer = require("nodemailer");
 dotenv.config();
 
@@ -31,33 +30,6 @@ transporter.verify((error, success) => {
 // Fonction pour générer un code à 6 chiffres
 const generateVerificationCode = () => {
   return Math.floor(100000 + Math.random() * 900000).toString();
-};
-
-// Middleware d'authentification
-const authMiddleware = async (req, res, next) => {
-  try {
-    const token = req.header('Authorization')?.replace('Bearer ', '');
-    
-    if (!token) {
-      throw new Error('Token manquant');
-    }
-
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'votre_secret_jwt_par_defaut');
-    
-    req.userId = decoded.id;
-    req.userRole = decoded.role;
-    req.entrepriseId = decoded.entrepriseId;
-    
-    console.log('🔐 Auth middleware:', {
-      userId: req.userId,
-      entrepriseId: req.entrepriseId,
-      role: req.userRole
-    });
-    
-    next();
-  } catch (error) {
-    res.status(401).json({ error: 'Authentification requise' });
-  }
 };
 
 // ✅ Inscription avec code de vérification simple
@@ -96,13 +68,12 @@ router.post("/register", async (req, res) => {
     
     const newUser = new User({
       name,
-      nom: name, // Ajout pour compatibilité
       email,
       password: hashedPassword,
       role,
       entrepriseId,
       emailVerified: false,
-      verificationToken: verificationCode,
+      verificationToken: verificationCode, // On utilise le même champ pour stocker le code
       verificationTokenExpires: verificationCodeExpires
     });
     
@@ -148,7 +119,7 @@ router.post("/register", async (req, res) => {
     
     res.status(201).json({ 
       message: "✅ Inscription réussie ! Un code de vérification a été envoyé à votre email.",
-      email: email
+      email: email // On renvoie l'email pour le pré-remplir dans l'écran suivant
     });
     
   } catch (error) {
@@ -244,7 +215,7 @@ router.post("/resend-code", async (req, res) => {
   }
 });
 
-// ✅ Connexion CORRIGÉE avec création automatique d'entreprise
+// ✅ Connexion (vérifie si l'email est validé)
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -253,7 +224,7 @@ router.post("/login", async (req, res) => {
       return res.status(400).json({ message: "⚠️ Email et mot de passe requis." });
     }
     
-    const user = await User.findOne({ email }).populate('entrepriseId');
+    const user = await User.findOne({ email });
     if (!user) {
       return res.status(401).json({ message: "❌ Utilisateur non trouvé." });
     }
@@ -272,66 +243,22 @@ router.post("/login", async (req, res) => {
       return res.status(401).json({ message: "❌ Mot de passe incorrect." });
     }
     
-    // IMPORTANT: Gérer l'entreprise pour les patrons
-    let entrepriseId = user.entrepriseId;
-    
-    if (user.role === 'patron' && !entrepriseId) {
-      console.log('🏢 Création automatique d\'entreprise pour le patron...');
-      
-      try {
-        // Créer une nouvelle entreprise
-        const entreprise = await Entreprise.create({
-          nom: `Entreprise de ${user.name || user.nom || user.email}`,
-          email: user.email,
-          telephone: user.telephone || '0000000000',
-          adresse: 'À compléter',
-          patronId: user._id
-        });
-
-        // Mettre à jour l'utilisateur
-        user.entrepriseId = entreprise._id;
-        await user.save();
-        entrepriseId = entreprise._id;
-        
-        console.log('✅ Entreprise créée automatiquement:', entrepriseId);
-      } catch (error) {
-        console.error('❌ Erreur création entreprise:', error);
-        return res.status(500).json({ 
-          message: "❌ Erreur lors de la création de l'entreprise. Veuillez réessayer." 
-        });
-      }
-    }
-    
-    // Création du token JWT avec entrepriseId
+    // Création du token JWT
     const token = jwt.sign(
-      { 
-        id: user._id, 
-        role: user.role, 
-        entrepriseId: entrepriseId?._id || entrepriseId || null,
-        email: user.email
-      },
+      { id: user._id, role: user.role, entrepriseId: user.entrepriseId || null },
       process.env.JWT_SECRET || 'votre_secret_jwt_par_defaut',
       { expiresIn: "7d" }
     );
-    
-    console.log('🔑 Token JWT créé avec payload:', {
-      id: user._id,
-      role: user.role,
-      entrepriseId: entrepriseId?._id || entrepriseId || null
-    });
     
     res.status(200).json({
       message: "✅ Connexion réussie",
       token,
       user: {
         id: user._id,
-        _id: user._id,
-        name: user.name || user.nom,
-        nom: user.nom || user.name,
+        name: user.name,
         email: user.email,
         role: user.role,
-        entrepriseId: entrepriseId?._id || entrepriseId || null,
-        telephone: user.telephone,
+        entrepriseId: user.entrepriseId || null,
       },
     });
   } catch (error) {
@@ -340,83 +267,8 @@ router.post("/login", async (req, res) => {
   }
 });
 
-// ✅ NOUVELLE ROUTE : Créer une entreprise pour un patron
-router.post("/create-entreprise", authMiddleware, async (req, res) => {
-  try {
-    const { userId, nom, email, telephone } = req.body;
-
-    // Vérifier que l'utilisateur est bien un patron
-    const user = await User.findById(userId || req.userId);
-    if (!user || user.role !== 'patron') {
-      return res.status(403).json({ error: "Seuls les patrons peuvent créer une entreprise" });
-    }
-
-    // Vérifier qu'il n'a pas déjà une entreprise valide
-    if (user.entrepriseId && !user.entrepriseId.toString().startsWith('temp-')) {
-      const existingEntreprise = await Entreprise.findById(user.entrepriseId);
-      if (existingEntreprise) {
-        return res.status(400).json({ 
-          error: "L'utilisateur a déjà une entreprise",
-          entrepriseId: user.entrepriseId
-        });
-      }
-    }
-
-    // Créer l'entreprise
-    const entreprise = await Entreprise.create({
-      nom: nom || `Entreprise de ${user.name || user.nom}`,
-      email: email || user.email,
-      telephone: telephone || user.telephone || '0000000000',
-      adresse: 'À compléter',
-      patronId: user._id
-    });
-
-    // Mettre à jour l'utilisateur
-    user.entrepriseId = entreprise._id;
-    await user.save();
-
-    console.log(`✅ Entreprise créée: ${entreprise._id} pour ${user.email}`);
-
-    res.status(201).json({
-      message: "Entreprise créée avec succès",
-      entrepriseId: entreprise._id
-    });
-
-  } catch (error) {
-    console.error("❌ Erreur création entreprise:", error);
-    res.status(500).json({ error: "Erreur lors de la création de l'entreprise" });
-  }
-});
-
-// ✅ NOUVELLE ROUTE : Rafraîchir le token avec entrepriseId
-router.post("/refresh-token", authMiddleware, async (req, res) => {
-  try {
-    const { userId, entrepriseId } = req.body;
-
-    const user = await User.findById(userId || req.userId);
-    if (!user) {
-      return res.status(404).json({ error: "Utilisateur non trouvé" });
-    }
-
-    // Générer un nouveau token avec l'entrepriseId
-    const newToken = jwt.sign(
-      {
-        id: user._id,
-        email: user.email,
-        role: user.role,
-        entrepriseId: entrepriseId || user.entrepriseId
-      },
-      process.env.JWT_SECRET || 'votre_secret_jwt_par_defaut',
-      { expiresIn: '7d' }
-    );
-
-    res.json({ token: newToken });
-
-  } catch (error) {
-    console.error("❌ Erreur refresh token:", error);
-    res.status(500).json({ error: "Erreur lors du rafraîchissement du token" });
-  }
-});
+// ✅ Le reste du code reste identique (forgot-password, reset-password, etc.)
+// ...
 
 // ✅ Demande de réinitialisation du mot de passe
 router.post("/forgot-password", async (req, res) => {
@@ -444,6 +296,7 @@ router.post("/forgot-password", async (req, res) => {
     await user.save();
     
     // Envoyer l'email
+    // URL pour Expo en développement
     const resetUrl = `exp://localhost:19000/--/reset-password?token=${resetToken}`;
     
     await transporter.sendMail({
@@ -453,7 +306,7 @@ router.post("/forgot-password", async (req, res) => {
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
           <h2 style="color: #6C63FF;">Réinitialisation de mot de passe</h2>
-          <p>Bonjour ${user.name || user.nom},</p>
+          <p>Bonjour ${user.name},</p>
           <p>Vous avez demandé la réinitialisation de votre mot de passe. Cliquez sur le bouton ci-dessous pour créer un nouveau mot de passe :</p>
           <div style="text-align: center; margin: 30px 0;">
             <a href="${resetUrl}" 
@@ -513,6 +366,7 @@ router.post("/reset-password", async (req, res) => {
     await user.save();
     
     // Envoyer un email de confirmation
+    // URL pour Expo en développement
     const loginUrl = `exp://localhost:19000/--/login`;
     
     await transporter.sendMail({
@@ -522,7 +376,7 @@ router.post("/reset-password", async (req, res) => {
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
           <h2 style="color: #6C63FF;">Mot de passe modifié avec succès</h2>
-          <p>Bonjour ${user.name || user.nom},</p>
+          <p>Bonjour ${user.name},</p>
           <p>Votre mot de passe a été modifié avec succès.</p>
           <p>Si vous n'êtes pas à l'origine de cette modification, contactez-nous immédiatement.</p>
           <div style="text-align: center; margin: 30px 0;">
@@ -553,7 +407,7 @@ router.get("/verify-token", async (req, res) => {
     }
     
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'votre_secret_jwt_par_defaut');
-    const user = await User.findById(decoded.id).select('-password').populate('entrepriseId');
+    const user = await User.findById(decoded.id).select('-password');
     
     if (!user) {
       return res.status(401).json({ message: "❌ Utilisateur non trouvé" });
@@ -562,12 +416,10 @@ router.get("/verify-token", async (req, res) => {
     res.status(200).json({ 
       user: {
         id: user._id,
-        _id: user._id,
-        name: user.name || user.nom,
-        nom: user.nom || user.name,
+        name: user.name,
         email: user.email,
         role: user.role,
-        entrepriseId: user.entrepriseId?._id || user.entrepriseId || null,
+        entrepriseId: user.entrepriseId || null,
       } 
     });
   } catch (error) {
@@ -579,18 +431,13 @@ router.get("/verify-token", async (req, res) => {
   }
 });
 
-// ✅ PATCH utilisateur CORRIGÉ
+// ✅ PATCH utilisateur
 router.patch("/users/:id", async (req, res) => {
   try {
-    // Ne pas permettre la mise à jour avec des entrepriseId temporaires
-    if (req.body.entrepriseId && req.body.entrepriseId.toString().startsWith('temp-')) {
-      delete req.body.entrepriseId;
-    }
-    
     const updated = await User.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
       runValidators: true
-    }).populate('entrepriseId');
+    });
     
     if (!updated) {
       return res.status(404).json({ message: "❌ Utilisateur non trouvé." });
@@ -600,12 +447,10 @@ router.patch("/users/:id", async (req, res) => {
       message: "✅ Utilisateur mis à jour",
       user: {
         id: updated._id,
-        _id: updated._id,
-        name: updated.name || updated.nom,
-        nom: updated.nom || updated.name,
+        name: updated.name,
         email: updated.email,
         role: updated.role,
-        entrepriseId: updated.entrepriseId?._id || updated.entrepriseId || null,
+        entrepriseId: updated.entrepriseId || null,
       }
     });
   } catch (err) {
