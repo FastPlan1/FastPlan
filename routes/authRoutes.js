@@ -6,6 +6,7 @@ const crypto = require("crypto");
 const dotenv = require("dotenv");
 const User = require("../models/User");
 const InviteCode = require("../models/codeInvitation");
+const Entreprise = require("../models/Entreprise"); // NOUVEAU: Import du modèle Entreprise
 const nodemailer = require("nodemailer");
 dotenv.config();
 
@@ -215,7 +216,7 @@ router.post("/resend-code", async (req, res) => {
   }
 });
 
-// ✅ Connexion (vérifie si l'email est validé)
+// ✅ Connexion MODIFIÉE (vérifie si l'email est validé et crée une entreprise si nécessaire)
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -243,9 +244,38 @@ router.post("/login", async (req, res) => {
       return res.status(401).json({ message: "❌ Mot de passe incorrect." });
     }
     
-    // Création du token JWT
+    // NOUVEAU: Créer automatiquement une entreprise pour les patrons sans entreprise
+    if (user.role === 'patron' && !user.entrepriseId) {
+      console.log('🏢 Patron sans entreprise détecté, création automatique...');
+      
+      try {
+        const entreprise = await Entreprise.create({
+          nom: `Entreprise de ${user.name}`,
+          email: user.email,
+          telephone: user.telephone || '',
+          adresse: '',
+          patronId: user._id,
+          dateCreation: new Date()
+        });
+        
+        // Mettre à jour l'utilisateur avec l'ID de l'entreprise
+        user.entrepriseId = entreprise._id;
+        await user.save();
+        
+        console.log(`✅ Entreprise créée avec succès: ${entreprise._id}`);
+      } catch (error) {
+        console.error('❌ Erreur lors de la création de l\'entreprise:', error);
+        // On continue la connexion même si la création échoue
+      }
+    }
+    
+    // Création du token JWT avec l'entrepriseId mise à jour
     const token = jwt.sign(
-      { id: user._id, role: user.role, entrepriseId: user.entrepriseId || null },
+      { 
+        id: user._id, 
+        role: user.role, 
+        entrepriseId: user.entrepriseId || null 
+      },
       process.env.JWT_SECRET || 'votre_secret_jwt_par_defaut',
       { expiresIn: "7d" }
     );
@@ -266,9 +296,6 @@ router.post("/login", async (req, res) => {
     res.status(500).json({ message: "❌ Erreur serveur pendant la connexion." });
   }
 });
-
-// ✅ Le reste du code reste identique (forgot-password, reset-password, etc.)
-// ...
 
 // ✅ Demande de réinitialisation du mot de passe
 router.post("/forgot-password", async (req, res) => {
