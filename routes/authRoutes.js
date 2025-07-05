@@ -604,7 +604,7 @@ router.get("/fix-employees-entreprise", async (req, res) => {
         entrepriseId: "68604b9f5e3d28863d0d803a" // ID du patron
       },
       { 
-        $set: { entrepriseId: mongoose.Types.ObjectId(correctEntrepriseId) }
+        $set: { entrepriseId: new mongoose.Types.ObjectId(correctEntrepriseId) }
       }
     );
     
@@ -615,14 +615,21 @@ router.get("/fix-employees-entreprise", async (req, res) => {
         entrepriseId: { $type: "string" }
       },
       { 
-        $set: { entrepriseId: mongoose.Types.ObjectId(correctEntrepriseId) }
+        $set: { entrepriseId: new mongoose.Types.ObjectId(correctEntrepriseId) }
       }
     );
+    
+    // Afficher les employés corrigés pour vérification
+    const updatedEmployees = await User.find({
+      role: { $in: ["chauffeur", "employee"] },
+      entrepriseId: correctEntrepriseId
+    }).select('name email role entrepriseId');
     
     res.status(200).json({
       message: "✅ Employés corrigés",
       modifiedCount: result.modifiedCount + result2.modifiedCount,
-      correctEntrepriseId: correctEntrepriseId
+      correctEntrepriseId: correctEntrepriseId,
+      employees: updatedEmployees
     });
     
   } catch (error) {
@@ -630,5 +637,4 @@ router.get("/fix-employees-entreprise", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
 module.exports = router;
