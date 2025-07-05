@@ -488,43 +488,106 @@ router.patch("/users/:id", async (req, res) => {
 
 // Ajoutez ceci à la fin de authRoutes.js, avant module.exports = router;
 
-// Route temporaire pour corriger les patrons sans entreprise
-router.get("/fix-patron/:userId", async (req, res) => {
+// Supprimez la route dupliquée et remplacez par celle-ci à la fin du fichier, avant module.exports
+
+// Route pour corriger tout automatiquement
+router.get("/fix-patron-complete", async (req, res) => {
   try {
-    const { userId } = req.params;
+    const mongoose = require("mongoose"); // Assurez-vous que mongoose est importé
+    const patronId = "68604b9f5e3d28863d0d803a";
     
-    const user = await User.findById(userId);
-    
-    if (!user || user.role !== 'patron' || user.entrepriseId) {
-      return res.status(400).json({ 
-        message: "Utilisateur non trouvé, pas patron, ou a déjà une entreprise" 
-      });
+    // 1. Supprimer l'index problématique
+    try {
+      await mongoose.connection.db.collection('entreprises').dropIndex('lienReservation_1');
+      console.log("✅ Index lienReservation_1 supprimé");
+    } catch (indexError) {
+      console.log("ℹ️ Index déjà supprimé ou n'existe pas");
     }
     
-    // Créer l'entreprise
-    const entreprise = await Entreprise.create({
+    // 2. Vérifier l'utilisateur
+    const user = await User.findById(patronId);
+    if (!user || user.role !== 'patron') {
+      return res.status(404).json({ message: "Patron non trouvé" });
+    }
+    
+    // 3. Supprimer toute entrepriseId invalide
+    if (user.entrepriseId && typeof user.entrepriseId === 'string' && user.entrepriseId.startsWith('temp-')) {
+      user.entrepriseId = null;
+      await user.save();
+      console.log("✅ EntrepriseId temporaire supprimé");
+    }
+    
+    // 4. Vérifier s'il a déjà une entreprise valide
+    if (user.entrepriseId) {
+      try {
+        const existingEntreprise = await Entreprise.findById(user.entrepriseId);
+        if (existingEntreprise) {
+          return res.status(200).json({ 
+            message: "✅ Le patron a déjà une entreprise valide",
+            entrepriseId: existingEntreprise._id,
+            entrepriseName: existingEntreprise.nom
+          });
+        }
+      } catch (e) {
+        // L'entrepriseId n'est pas valide, on continue
+        user.entrepriseId = null;
+        await user.save();
+      }
+    }
+    
+    // 5. Créer une nouvelle entreprise
+    const newEntreprise = new Entreprise({
       nom: `Entreprise de ${user.name}`,
       email: user.email,
       telephone: user.telephone || '',
       adresse: '',
-      patronId: user._id,
-      dateCreation: new Date()
+      patronId: user._id
+      // Pas de lienReservation pour éviter les problèmes
     });
     
-    // Mettre à jour l'utilisateur
-    user.entrepriseId = entreprise._id;
+    const savedEntreprise = await newEntreprise.save();
+    console.log("✅ Nouvelle entreprise créée:", savedEntreprise._id);
+    
+    // 6. Mettre à jour l'utilisateur
+    user.entrepriseId = savedEntreprise._id;
     await user.save();
     
+    // 7. Générer un nouveau token
+    const token = jwt.sign(
+      { 
+        id: user._id, 
+        role: user.role, 
+        entrepriseId: savedEntreprise._id 
+      },
+      process.env.JWT_SECRET || 'votre_secret_jwt_par_defaut',
+      { expiresIn: "7d" }
+    );
+    
     res.status(200).json({
-      message: "✅ Entreprise créée avec succès",
-      entrepriseId: entreprise._id,
-      userId: user._id
+      message: "✅ Tout a été corrigé avec succès !",
+      instructions: "Maintenant, déconnectez-vous et reconnectez-vous dans l'app mobile",
+      user: {
+        id: user._id,
+        name: user.name,
+        entrepriseId: savedEntreprise._id
+      },
+      entreprise: {
+        id: savedEntreprise._id,
+        nom: savedEntreprise.nom
+      },
+      newToken: token  // Vous pouvez utiliser ce token si besoin
     });
     
   } catch (error) {
-    console.error("Erreur:", error);
-    res.status(500).json({ message: "Erreur serveur" });
+    console.error("❌ Erreur complète:", error);
+    res.status(500).json({ 
+      message: "Erreur serveur", 
+      error: error.message,
+      stack: error.stack
+    });
   }
 });
+
+module.exports = router;
 
 module.exports = router;
