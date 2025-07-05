@@ -588,6 +588,47 @@ router.get("/fix-patron-complete", async (req, res) => {
   }
 });
 
-module.exports = router;
+// Ajouter dans authRoutes.js temporairement
+
+router.get("/fix-employees-entreprise", async (req, res) => {
+  try {
+    const mongoose = require("mongoose");
+    
+    // L'ID correct de l'entreprise
+    const correctEntrepriseId = "6868e24582be1a223b72c74f";
+    
+    // Trouver tous les employés qui ont l'ID du patron comme entrepriseId
+    const result = await User.updateMany(
+      { 
+        role: { $in: ["chauffeur", "employee"] },
+        entrepriseId: "68604b9f5e3d28863d0d803a" // ID du patron
+      },
+      { 
+        $set: { entrepriseId: mongoose.Types.ObjectId(correctEntrepriseId) }
+      }
+    );
+    
+    // Aussi corriger ceux qui ont une string au lieu d'ObjectId
+    const result2 = await User.updateMany(
+      { 
+        role: { $in: ["chauffeur", "employee"] },
+        entrepriseId: { $type: "string" }
+      },
+      { 
+        $set: { entrepriseId: mongoose.Types.ObjectId(correctEntrepriseId) }
+      }
+    );
+    
+    res.status(200).json({
+      message: "✅ Employés corrigés",
+      modifiedCount: result.modifiedCount + result2.modifiedCount,
+      correctEntrepriseId: correctEntrepriseId
+    });
+    
+  } catch (error) {
+    console.error("Erreur:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 module.exports = router;
