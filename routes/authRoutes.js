@@ -486,4 +486,45 @@ router.patch("/users/:id", async (req, res) => {
   }
 });
 
+// Ajoutez ceci à la fin de authRoutes.js, avant module.exports = router;
+
+// Route temporaire pour corriger les patrons sans entreprise
+router.get("/fix-patron/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    const user = await User.findById(userId);
+    
+    if (!user || user.role !== 'patron' || user.entrepriseId) {
+      return res.status(400).json({ 
+        message: "Utilisateur non trouvé, pas patron, ou a déjà une entreprise" 
+      });
+    }
+    
+    // Créer l'entreprise
+    const entreprise = await Entreprise.create({
+      nom: `Entreprise de ${user.name}`,
+      email: user.email,
+      telephone: user.telephone || '',
+      adresse: '',
+      patronId: user._id,
+      dateCreation: new Date()
+    });
+    
+    // Mettre à jour l'utilisateur
+    user.entrepriseId = entreprise._id;
+    await user.save();
+    
+    res.status(200).json({
+      message: "✅ Entreprise créée avec succès",
+      entrepriseId: entreprise._id,
+      userId: user._id
+    });
+    
+  } catch (error) {
+    console.error("Erreur:", error);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
 module.exports = router;
