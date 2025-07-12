@@ -256,7 +256,7 @@ const planningSchema = new mongoose.Schema({
   }
 }, {
   timestamps: false, // Utiliser nos propres champs
-  collection: 'planning',
+  collection: 'plannings',
   strict: true,
   minimize: false,
   versionKey: false // Supprimer __v
