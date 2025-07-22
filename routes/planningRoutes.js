@@ -1760,6 +1760,40 @@ router.get("/export/chauffeur/:chauffeurNom", async (req, res) => {
       });
     }
 
+    // Ajouter temporairement dans planningRoutes.js
+
+router.get("/debug-chauffeur/:entrepriseId", async (req, res) => {
+  try {
+    const { entrepriseId } = req.params;
+    const { date } = req.query;
+    
+    // Récupérer toutes les courses de l'entreprise pour cette date
+    const allCourses = await Planning.find({
+      entrepriseId: entrepriseId,
+      date: date || moment().format('YYYY-MM-DD')
+    }).select('chauffeur nom prenom statut heure date');
+    
+    // Extraire tous les noms de chauffeurs uniques
+    const chauffeurs = [...new Set(allCourses.map(c => c.chauffeur).filter(c => c))];
+    
+    res.json({
+      date: date || moment().format('YYYY-MM-DD'),
+      totalCourses: allCourses.length,
+      chauffeurs: chauffeurs,
+      courses: allCourses.map(c => ({
+        id: c._id,
+        client: `${c.prenom} ${c.nom}`,
+        chauffeur: c.chauffeur,
+        statut: c.statut,
+        heure: c.heure
+      }))
+    });
+    
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
     console.log(`✅ Export généré: ${exportData.length} courses`);
 
   } catch (err) {
