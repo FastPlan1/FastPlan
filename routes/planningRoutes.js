@@ -747,6 +747,54 @@ router.get("/chauffeur/:chauffeurNom", async (req, res) => {
   }
 });
 
+// Ajouter temporairement dans planningRoutes.js
+
+router.get("/debug-names/:entrepriseId", async (req, res) => {
+  try {
+    const { entrepriseId } = req.params;
+    const { date } = req.query;
+    
+    // Récupérer toutes les courses
+    const allCourses = await Planning.find({
+      entrepriseId: entrepriseId,
+      date: date || moment().format('YYYY-MM-DD')
+    }).select('chauffeur nom prenom statut heure date');
+    
+    // Récupérer tous les utilisateurs de l'entreprise
+    const User = require("../models/User");
+    const allUsers = await User.find({
+      entrepriseId: entrepriseId
+    }).select('name nom prenom email role');
+    
+    // Extraire les noms de chauffeurs uniques des courses
+    const chauffeursDansCourses = [...new Set(allCourses.map(c => c.chauffeur).filter(c => c))];
+    
+    res.json({
+      date: date || moment().format('YYYY-MM-DD'),
+      chauffeursDansCourses: chauffeursDansCourses,
+      utilisateurs: allUsers.map(u => ({
+        id: u._id,
+        name: u.name,
+        nom: u.nom,
+        prenom: u.prenom,
+        nomComplet: `${u.prenom || ''} ${u.nom || u.name || ''}`.trim(),
+        role: u.role
+      })),
+      courses: allCourses.map(c => ({
+        id: c._id,
+        client: `${c.prenom} ${c.nom}`,
+        chauffeur: c.chauffeur,
+        chauffeurLength: c.chauffeur ? c.chauffeur.length : 0,
+        statut: c.statut,
+        heure: c.heure
+      }))
+    });
+    
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ✅ NOUVELLE ROUTE : PARTAGER UNE COURSE
 router.post("/share/:id", async (req, res) => {
   try {
