@@ -661,9 +661,11 @@ router.delete("/recurring-group/:groupId", async (req, res) => {
 });
 
 // ✅ RÉCUPÉRER LE PLANNING D'UN CHAUFFEUR
+// Dans planningRoutes.js - Remplacer la route GET /planning/chauffeur/:chauffeurNom
+
 router.get("/chauffeur/:chauffeurNom", async (req, res) => {
   try {
-    const { entrepriseId, dateStart, dateEnd } = req.query;
+    const { entrepriseId, date, dateStart, dateEnd } = req.query; // Ajouter 'date' ici
     const chauffeurNom = decodeURIComponent(req.params.chauffeurNom);
     
     if (!entrepriseId) {
@@ -675,6 +677,8 @@ router.get("/chauffeur/:chauffeurNom", async (req, res) => {
     }
 
     console.log("👤 GET /planning/chauffeur - Récupération pour:", chauffeurNom);
+    console.log("🏢 EntrepriseId:", entrepriseId);
+    console.log("📅 Date:", date || dateStart || dateEnd || "Pas de date spécifiée");
 
     // Construction du filtre avec échappement des caractères spéciaux
     const filter = {
@@ -682,8 +686,13 @@ router.get("/chauffeur/:chauffeurNom", async (req, res) => {
       chauffeur: { $regex: new RegExp(`^${escapeRegExp(chauffeurNom.trim())}$`, "i") },
     };
 
-    // Filtre par période si spécifié
-    if (dateStart && dateEnd) {
+    // NOUVEAU: Gérer le paramètre 'date' simple
+    if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      filter.date = date;
+      console.log("🔍 Filtre par date unique:", date);
+    } 
+    // Ou gérer les périodes avec dateStart/dateEnd
+    else if (dateStart && dateEnd) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStart) || !/^\d{4}-\d{2}-\d{2}$/.test(dateEnd)) {
         return res.status(400).json({ error: "Format de date invalide" });
       }
@@ -700,6 +709,8 @@ router.get("/chauffeur/:chauffeurNom", async (req, res) => {
       filter.date = { $lte: dateEnd };
     }
 
+    console.log("🔍 Filtre de recherche complet:", JSON.stringify(filter));
+
     const courses = await Planning.find(filter)
       .sort({ date: 1, heure: 1 })
       .lean();
@@ -713,10 +724,16 @@ router.get("/chauffeur/:chauffeurNom", async (req, res) => {
       telephone: course.telephone || '',
       depart: course.depart || 'Adresse de départ non spécifiée',
       arrive: course.arrive || 'Adresse d\'arrivée non spécifiée',
-      scanPdfUrl: course.scanPdfUrl || null, // 🆕 Inclure l'URL du PDF scanné
+      scanPdfUrl: course.scanPdfUrl || null,
     }));
 
     console.log(`✅ ${coursesFormatted.length} courses trouvées pour ${chauffeurNom}`);
+    
+    // Debug: afficher les dates des courses trouvées
+    if (coursesFormatted.length > 0) {
+      console.log("📋 Dates des courses trouvées:", coursesFormatted.map(c => c.date));
+    }
+    
     res.status(200).json(coursesFormatted);
 
   } catch (err) {
