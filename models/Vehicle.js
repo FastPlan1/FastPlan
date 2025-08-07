@@ -32,6 +32,12 @@ const vehicleSchema = new mongoose.Schema({
     required: true,
     index: true
   },
+  titre: {
+    type: String,
+    required: true,
+    trim: true,
+    maxlength: [100, "Le titre ne peut pas dépasser 100 caractères"]
+  },
   registrationNumber: {
     type: String,
     required: true,
@@ -73,7 +79,7 @@ const vehicleSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ["active", "maintenance", "inactive"],
+    enum: ["active", "maintenance", "inactive", "controle_technique", "visite_periodique"],
     default: "active"
   },
   features: [{
@@ -95,6 +101,77 @@ const vehicleSchema = new mongoose.Schema({
     type: Number,
     min: 0
   },
+  // Contrôle technique
+  controleTechnique: {
+    dateDernier: {
+      type: Date
+    },
+    dateProchain: {
+      type: Date,
+      required: true
+    },
+    statut: {
+      type: String,
+      enum: ["valide", "expire_soon", "expire", "en_cours"],
+      default: "valide"
+    },
+    numeroControle: {
+      type: String,
+      trim: true
+    },
+    centreControle: {
+      type: String,
+      trim: true
+    }
+  },
+  // Visite périodique
+  visitePeriodique: {
+    dateDerniere: {
+      type: Date
+    },
+    dateProchaine: {
+      type: Date,
+      required: true
+    },
+    statut: {
+      type: String,
+      enum: ["valide", "expire_soon", "expire", "en_cours"],
+      default: "valide"
+    },
+    numeroVisite: {
+      type: String,
+      trim: true
+    },
+    centreVisite: {
+      type: String,
+      trim: true
+    }
+  },
+  // Géolocalisation
+  location: {
+    latitude: {
+      type: Number,
+      min: -90,
+      max: 90
+    },
+    longitude: {
+      type: Number,
+      min: -180,
+      max: 180
+    },
+    lastUpdate: {
+      type: Date,
+      default: Date.now
+    },
+    isOnline: {
+      type: Boolean,
+      default: false
+    },
+    assignedDriver: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User"
+    }
+  },
   maintenanceHistory: [maintenanceEntrySchema],
   active: {
     type: Boolean,
@@ -114,5 +191,55 @@ const vehicleSchema = new mongoose.Schema({
 vehicleSchema.index({ registrationNumber: 1 });
 vehicleSchema.index({ status: 1 });
 vehicleSchema.index({ entrepriseId: 1, status: 1 });
+vehicleSchema.index({ "location.latitude": 1, "location.longitude": 1 });
+vehicleSchema.index({ "controleTechnique.dateProchain": 1 });
+vehicleSchema.index({ "visitePeriodique.dateProchaine": 1 });
+
+// Méthodes pour vérifier les dates d'expiration
+vehicleSchema.methods.checkControleTechnique = function() {
+  const now = new Date();
+  const prochainControle = this.controleTechnique.dateProchain;
+  
+  if (!prochainControle) return "pas_de_date";
+  
+  const joursRestants = Math.ceil((prochainControle - now) / (1000 * 60 * 60 * 24));
+  
+  if (joursRestants < 0) return "expire";
+  if (joursRestants <= 30) return "expire_soon";
+  return "valide";
+};
+
+vehicleSchema.methods.checkVisitePeriodique = function() {
+  const now = new Date();
+  const prochaineVisite = this.visitePeriodique.dateProchaine;
+  
+  if (!prochaineVisite) return "pas_de_date";
+  
+  const joursRestants = Math.ceil((prochaineVisite - now) / (1000 * 60 * 60 * 24));
+  
+  if (joursRestants < 0) return "expire";
+  if (joursRestants <= 30) return "expire_soon";
+  return "valide";
+};
+
+// Middleware pour mettre à jour automatiquement les statuts
+vehicleSchema.pre('save', function(next) {
+  // Mettre à jour le statut du contrôle technique
+  const controleStatus = this.checkControleTechnique();
+  this.controleTechnique.statut = controleStatus;
+  
+  // Mettre à jour le statut de la visite périodique
+  const visiteStatus = this.checkVisitePeriodique();
+  this.visitePeriodique.statut = visiteStatus;
+  
+  // Mettre à jour le statut général du véhicule
+  if (controleStatus === "expire" || visiteStatus === "expire") {
+    this.status = "inactive";
+  } else if (controleStatus === "expire_soon" || visiteStatus === "expire_soon") {
+    this.status = "maintenance";
+  }
+  
+  next();
+});
 
 module.exports = mongoose.model("Vehicle", vehicleSchema);

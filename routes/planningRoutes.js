@@ -443,6 +443,40 @@ router.put("/finish-with-scan/:id", upload.single('scanPdf'), async (req, res) =
       { new: true, runValidators: true }
     );
 
+    // Envoyer une notification au patron quand une course est terminée
+    try {
+      const pushNotificationService = require('../utils/pushNotificationService');
+      const User = require('../models/User');
+      
+      // Trouver le patron de l'entreprise
+      const boss = await User.findOne({ 
+        entrepriseId: updatedCourse.entrepriseId,
+        role: 'patron'
+      });
+
+      if (boss) {
+        // Trouver le chauffeur qui a terminé la course
+        const finishedBy = await User.findOne({ 
+          nom: updatedCourse.chauffeur,
+          entrepriseId: updatedCourse.entrepriseId,
+          role: 'chauffeur'
+        });
+
+        if (finishedBy) {
+          // Envoyer la notification
+          await pushNotificationService.sendCourseFinishedNotification(
+            updatedCourse,
+            finishedBy,
+            boss
+          );
+          console.log("📱 Notification envoyée au patron:", boss.nom);
+        }
+      }
+    } catch (notificationError) {
+      console.error("❌ Erreur envoi notification:", notificationError);
+      // Ne pas faire échouer la requête si la notification échoue
+    }
+
     console.log(`✅ Course terminée par ${updatedCourse.chauffeur} avec scan PDF`);
     
     res.status(200).json({ 
@@ -509,6 +543,40 @@ router.put("/finish/:id", async (req, res) => {
       updateData,
       { new: true, runValidators: true }
     );
+
+    // Envoyer une notification au patron quand une course est terminée
+    try {
+      const pushNotificationService = require('../utils/pushNotificationService');
+      const User = require('../models/User');
+      
+      // Trouver le patron de l'entreprise
+      const boss = await User.findOne({ 
+        entrepriseId: updatedCourse.entrepriseId,
+        role: 'patron'
+      });
+
+      if (boss) {
+        // Trouver le chauffeur qui a terminé la course
+        const finishedBy = await User.findOne({ 
+          nom: updatedCourse.chauffeur,
+          entrepriseId: updatedCourse.entrepriseId,
+          role: 'chauffeur'
+        });
+
+        if (finishedBy) {
+          // Envoyer la notification
+          await pushNotificationService.sendCourseFinishedNotification(
+            updatedCourse,
+            finishedBy,
+            boss
+          );
+          console.log("📱 Notification envoyée au patron:", boss.nom);
+        }
+      }
+    } catch (notificationError) {
+      console.error("❌ Erreur envoi notification:", notificationError);
+      // Ne pas faire échouer la requête si la notification échoue
+    }
 
     console.log(`🔔 Course terminée par ${updatedCourse.chauffeur} à ${new Date().toLocaleString()}`);
     
@@ -996,6 +1064,34 @@ router.put("/send/:id", async (req, res) => {
 
     if (!updatedCourse) {
       return res.status(404).json({ message: "❌ Course non trouvée." });
+    }
+
+    // Envoyer une notification au chauffeur si une course est assignée
+    if (chauffeur && chauffeur.trim()) {
+      try {
+        const pushNotificationService = require('../utils/pushNotificationService');
+        const User = require('../models/User');
+        
+        // Trouver le chauffeur assigné
+        const assignedDriver = await User.findOne({ 
+          nom: chauffeur.trim(),
+          entrepriseId: updatedCourse.entrepriseId,
+          role: 'chauffeur'
+        });
+
+        if (assignedDriver) {
+          // Envoyer la notification
+          await pushNotificationService.sendCourseAssignedNotification(
+            updatedCourse,
+            assignedDriver,
+            req.user
+          );
+          console.log("📱 Notification envoyée au chauffeur:", assignedDriver.nom);
+        }
+      } catch (notificationError) {
+        console.error("❌ Erreur envoi notification:", notificationError);
+        // Ne pas faire échouer la requête si la notification échoue
+      }
     }
 
     console.log("✅ Course assignée avec succès");

@@ -95,6 +95,7 @@ connectDB()
     app.use("/api/invitation", require("./routes/invitationRoutes"));
     app.use("/api/reservations", require("./routes/reservationRoutes"));
     app.use("/api/notifications", require("./routes/notificationsRoutes"));
+    app.use("/api/vehicles", require("./routes/vehicleRoutes"));
 
     // Route de test
     app.get("/", (req, res) =>
