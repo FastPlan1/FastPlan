@@ -1,39 +1,40 @@
 const mongoose = require("mongoose");
 
-const EntrepriseSchema = new mongoose.Schema({
-  nom: { 
-    type: String, 
-    required: true 
+const entrepriseSchema = new mongoose.Schema({
+  nom: {
+    type: String,
+    required: true,
+    trim: true
   },
-  email: { 
-    type: String, 
-    required: false 
+  adresse: {
+    type: String,
+    trim: true
   },
-  telephone: { 
-    type: String, 
-    default: "" 
+  telephone: {
+    type: String,
+    trim: true
   },
-  adresse: { 
-    type: String, 
-    default: "" 
+  email: {
+    type: String,
+    trim: true,
+    lowercase: true
   },
-  patronId: { 
-    type: mongoose.Schema.Types.ObjectId, 
-    ref: "User", 
-    required: true 
+  siret: {
+    type: String,
+    trim: true
   },
-  tempId: { 
-    type: String, 
-    sparse: true  // Retiré unique: true
+  active: {
+    type: Boolean,
+    default: true
   },
-  lienReservation: { 
-    type: String, 
-    sparse: true  // Retiré unique: true pour éviter les erreurs
-  },
-  dateCreation: { 
-    type: Date, 
-    default: Date.now 
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User"
   }
-});
+}, { timestamps: true });
 
-module.exports = mongoose.models.Entreprise || mongoose.model("Entreprise", EntrepriseSchema);
+// Index pour améliorer les performances
+entrepriseSchema.index({ nom: 1 });
+entrepriseSchema.index({ active: 1 });
+
+module.exports = mongoose.model("Entreprise", entrepriseSchema);

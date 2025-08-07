@@ -1,17 +1,41 @@
 // models/CodeInvitation.js
 const mongoose = require("mongoose");
 
-const CodeInvitationSchema = new mongoose.Schema({
-  code:      { type: String, required: true, unique: true },
-  used:      { type: Boolean, default: false },
-  patron:    {
+const codeInvitationSchema = new mongoose.Schema({
+  code: {
+    type: String,
+    required: true,
+    unique: true,
+    trim: true
+  },
+  patron: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: "User",   // On référence bien le modèle User
+    ref: "User",
     required: true
   },
-  createdAt: { type: Date, default: Date.now }
-});
+  used: {
+    type: Boolean,
+    default: false
+  },
+  usedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User"
+  },
+  usedAt: {
+    type: Date
+  },
+  expiresAt: {
+    type: Date,
+    default: function() {
+      return new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 jours
+    }
+  }
+}, { timestamps: true });
 
-module.exports =
-  mongoose.models.CodeInvitation ||
-  mongoose.model("CodeInvitation", CodeInvitationSchema);
+// Index pour améliorer les performances
+codeInvitationSchema.index({ code: 1 });
+codeInvitationSchema.index({ patron: 1 });
+codeInvitationSchema.index({ used: 1 });
+codeInvitationSchema.index({ expiresAt: 1 });
+
+module.exports = mongoose.model("codeInvitation", codeInvitationSchema);
