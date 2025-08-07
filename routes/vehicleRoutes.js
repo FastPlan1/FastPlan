@@ -142,7 +142,7 @@ router.post("/", authMiddleware, async (req, res) => {
 
     await vehicle.save();
 
-    console.log("✅ Véhicule créé:", vehicle.titre);
+    console.log("🚗 Nouveau véhicule créé:", vehicle.titre);
     res.status(201).json({
       message: "🚗 Véhicule créé avec succès",
       vehicle,
@@ -150,7 +150,7 @@ router.post("/", authMiddleware, async (req, res) => {
   } catch (error) {
     console.error("❌ Erreur création véhicule:", error);
     res.status(500).json({
-      message: error.message || "Erreur serveur lors de la création du véhicule",
+      message: "Erreur serveur lors de la création du véhicule",
     });
   }
 });
@@ -161,18 +161,8 @@ router.put("/:id", authMiddleware, async (req, res) => {
     const vehicleId = req.params.id;
     const updateData = req.body;
 
-    // Vérifier si le véhicule appartient à l'entreprise
-    const vehicle = await Vehicle.findOne({
-      _id: vehicleId,
-      entrepriseId: req.user.entrepriseId,
-    });
-
-    if (!vehicle) {
-      return res.status(404).json({ message: "❌ Véhicule non trouvé" });
-    }
-
-    // Si la plaque d'immatriculation change, vérifier qu'elle n'existe pas déjà
-    if (updateData.registrationNumber && updateData.registrationNumber !== vehicle.registrationNumber) {
+    // Vérifier si la plaque d'immatriculation existe déjà (si elle est modifiée)
+    if (updateData.registrationNumber) {
       const existingVehicle = await Vehicle.findOne({
         registrationNumber: updateData.registrationNumber.toUpperCase(),
         _id: { $ne: vehicleId },
@@ -183,28 +173,31 @@ router.put("/:id", authMiddleware, async (req, res) => {
           message: "❌ Un véhicule avec cette plaque d'immatriculation existe déjà",
         });
       }
-    }
 
-    updateData.updatedBy = req.user._id;
-    if (updateData.registrationNumber) {
       updateData.registrationNumber = updateData.registrationNumber.toUpperCase();
     }
 
-    const updatedVehicle = await Vehicle.findByIdAndUpdate(
-      vehicleId,
+    updateData.updatedBy = req.user._id;
+
+    const vehicle = await Vehicle.findOneAndUpdate(
+      { _id: vehicleId, entrepriseId: req.user.entrepriseId },
       updateData,
       { new: true, runValidators: true }
     );
 
-    console.log("✅ Véhicule mis à jour:", updatedVehicle.titre);
+    if (!vehicle) {
+      return res.status(404).json({ message: "❌ Véhicule non trouvé" });
+    }
+
+    console.log("🔧 Véhicule mis à jour:", vehicle.titre);
     res.status(200).json({
-      message: "🚗 Véhicule mis à jour avec succès",
-      vehicle: updatedVehicle,
+      message: "🔧 Véhicule mis à jour avec succès",
+      vehicle,
     });
   } catch (error) {
     console.error("❌ Erreur mise à jour véhicule:", error);
     res.status(500).json({
-      message: error.message || "Erreur serveur lors de la mise à jour du véhicule",
+      message: "Erreur serveur lors de la mise à jour du véhicule",
     });
   }
 });
@@ -215,7 +208,6 @@ router.put("/:id/location", authMiddleware, async (req, res) => {
     const vehicleId = req.params.id;
     const { latitude, longitude, isOnline, assignedDriver } = req.body;
 
-    // Vérifier si le véhicule appartient à l'entreprise
     const vehicle = await Vehicle.findOne({
       _id: vehicleId,
       entrepriseId: req.user.entrepriseId,
@@ -229,7 +221,8 @@ router.put("/:id/location", authMiddleware, async (req, res) => {
       "location.latitude": latitude,
       "location.longitude": longitude,
       "location.lastUpdate": new Date(),
-      "location.isOnline": isOnline !== undefined ? isOnline : vehicle.location.isOnline,
+      "location.isOnline": isOnline !== undefined ? isOnline : vehicle.location?.isOnline,
+      updatedBy: req.user._id,
     };
 
     if (assignedDriver !== undefined) {
@@ -239,7 +232,7 @@ router.put("/:id/location", authMiddleware, async (req, res) => {
     const updatedVehicle = await Vehicle.findByIdAndUpdate(
       vehicleId,
       updateData,
-      { new: true }
+      { new: true, runValidators: true }
     );
 
     console.log("📍 Géolocalisation mise à jour pour:", updatedVehicle.titre);
