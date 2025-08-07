@@ -1,6 +1,6 @@
 {
   "name": "taxi-backend",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Backend pour l'application de gestion de taxi",
   "main": "server.js",
   "scripts": {
