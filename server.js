@@ -85,7 +85,7 @@ connectDB()
 
     console.log("✅ Middlewares activés avec CORS, JSON, logs et upload statique");
 
-    // === Tes routes existantes ===
+    // === Routes ===
     app.use("/api/auth", require("./routes/authRoutes"));
     app.use("/api/clients", require("./routes/clientsRoutes"));
     app.use("/api/courses", require("./routes/coursesRoutes"));

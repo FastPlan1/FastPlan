@@ -1,62 +1,73 @@
 // models/User.js
 const mongoose = require("mongoose");
+const bcrypt = require("bcryptjs");
 
 const userSchema = new mongoose.Schema({
-  name: {
+  nom: {
     type: String,
     required: true,
-    trim: true,
+    trim: true
+  },
+  prenom: {
+    type: String,
+    required: true,
+    trim: true
   },
   email: {
     type: String,
     required: true,
     unique: true,
-    lowercase: true,
     trim: true,
+    lowercase: true
   },
   password: {
     type: String,
     required: true,
+    minlength: 6
   },
   role: {
     type: String,
-    enum: ["patron", "chauffeur"],
-    default: "patron",
+    enum: ["patron", "chauffeur", "admin"],
+    default: "chauffeur"
+  },
+  telephone: {
+    type: String,
+    trim: true
   },
   entrepriseId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: "Entreprise",
-    default: null,
+    ref: "User",
+    required: true
   },
-  // Nouveaux champs pour la vérification d'email
-  emailVerified: {
+  active: {
     type: Boolean,
-    default: false,
+    default: true
   },
-  verificationToken: {
-    type: String,
-    default: undefined,
+  expoPushToken: {
+    type: String
   },
-  verificationTokenExpires: {
-    type: Date,
-    default: undefined,
-  },
-  // Nouveaux champs pour la réinitialisation du mot de passe
-  resetPasswordToken: {
-    type: String,
-    default: undefined,
-  },
-  resetPasswordExpires: {
-    type: Date,
-    default: undefined,
-  },
-}, {
-  timestamps: true,
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User"
+  }
+}, { timestamps: true });
+
+// Hash du mot de passe avant sauvegarde
+userSchema.pre("save", async function(next) {
+  if (!this.isModified("password")) return next();
+  
+  try {
+    const salt = await bcrypt.genSalt(10);
+    this.password = await bcrypt.hash(this.password, salt);
+    next();
+  } catch (error) {
+    next(error);
+  }
 });
 
-// Index pour améliorer les performances
-userSchema.index({ email: 1 });
-userSchema.index({ verificationToken: 1 });
-userSchema.index({ resetPasswordToken: 1 });
+// Méthode pour comparer les mots de passe
+userSchema.methods.comparePassword = async function(candidatePassword) {
+  return bcrypt.compare(candidatePassword, this.password);
+};
 
 module.exports = mongoose.model("User", userSchema);

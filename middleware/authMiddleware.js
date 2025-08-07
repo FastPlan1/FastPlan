@@ -1,25 +1,28 @@
 const jwt = require("jsonwebtoken");
+const User = require("../models/User");
 
-function authMiddleware(req, res, next) {
-  const authHeader = req.header("Authorization") || "";
-
-  if (!authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({ message: "Accès refusé. Token manquant." });
-  }
-
-  const token = authHeader.split(" ")[1];
-  
+const authMiddleware = async (req, res, next) => {
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = payload;
+    const token = req.header("Authorization")?.replace("Bearer ", "");
 
-    console.log("🚨 Payload JWT reçu :", req.user); // ✅ A METTRE ICI, à l'intérieur de la fonction !!
+    if (!token) {
+      return res.status(401).json({ message: "❌ Token d'authentification manquant" });
+    }
 
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findById(decoded.userId).select("-password");
+
+    if (!user) {
+      return res.status(401).json({ message: "❌ Utilisateur non trouvé" });
+    }
+
+    req.user = user;
     next();
-  } catch (err) {
-    return res.status(401).json({ message: "Token invalide." });
+  } catch (error) {
+    console.error("❌ Erreur authentification:", error);
+    res.status(401).json({ message: "❌ Token invalide" });
   }
-}
+};
 
 function isPatron(req, res, next) {
   if (!req.user || req.user.role !== "patron") {

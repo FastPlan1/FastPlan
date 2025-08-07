@@ -99,7 +99,7 @@ const vehicleSchema = new mongoose.Schema({
   },
   nextMaintenanceKm: {
     type: Number,
-    min: 0
+    default: 0
   },
   // Contrôle technique
   controleTechnique: {
@@ -107,13 +107,12 @@ const vehicleSchema = new mongoose.Schema({
       type: Date
     },
     dateProchain: {
-      type: Date,
-      required: true
+      type: Date
     },
     statut: {
       type: String,
-      enum: ["valide", "expire_soon", "expire", "en_cours"],
-      default: "valide"
+      enum: ["valide", "expire", "expire_soon", "pas_de_date"],
+      default: "pas_de_date"
     },
     numeroControle: {
       type: String,
@@ -130,13 +129,12 @@ const vehicleSchema = new mongoose.Schema({
       type: Date
     },
     dateProchaine: {
-      type: Date,
-      required: true
+      type: Date
     },
     statut: {
       type: String,
-      enum: ["valide", "expire_soon", "expire", "en_cours"],
-      default: "valide"
+      enum: ["valide", "expire", "expire_soon", "pas_de_date"],
+      default: "pas_de_date"
     },
     numeroVisite: {
       type: String,
